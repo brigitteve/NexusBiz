@@ -1,0 +1,406 @@
+package com.nexusbiz.nexusbiz.navigation
+
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.navigation
+import androidx.navigation.navArgument
+import com.nexusbiz.nexusbiz.data.repository.AuthRepository
+import com.nexusbiz.nexusbiz.data.repository.GroupRepository
+import com.nexusbiz.nexusbiz.data.repository.ProductRepository
+import com.nexusbiz.nexusbiz.data.repository.StoreRepository
+import com.nexusbiz.nexusbiz.ui.screens.store.MyProductsScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.OfferPublishedScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.PublishProductScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.ScanQRScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.StoreBoostVisibilityScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.StoreDashboardScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.StoreGroupDetailScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.StoreProfileScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.StoreSubscriptionProScreen
+import com.nexusbiz.nexusbiz.ui.screens.store.mapParticipantsForStore
+import com.nexusbiz.nexusbiz.ui.viewmodel.AppViewModel
+import com.nexusbiz.nexusbiz.ui.viewmodel.AuthViewModel
+import com.nexusbiz.nexusbiz.util.Screen
+import kotlinx.coroutines.launch
+
+fun androidx.navigation.NavGraphBuilder.storeNavGraph(
+    navController: NavHostController,
+    authViewModel: AuthViewModel,
+    appViewModel: AppViewModel,
+    authRepository: AuthRepository,
+    productRepository: ProductRepository,
+    groupRepository: GroupRepository,
+    storeRepository: StoreRepository
+) {
+    navigation(
+        route = STORE_GRAPH_ROUTE,
+        startDestination = Screen.StoreDashboard.route
+    ) {
+        composable(Screen.StoreDashboard.route) {
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.StoreDashboard.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val storeOwner = authViewModel.currentStore
+            val storeId = storeOwner?.id
+            val ownerUserId = storeOwner?.ownerId
+            val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(ownerUserId) {
+                ownerUserId?.let { userId ->
+                    appViewModel.fetchProducts("")
+                    appViewModel.fetchGroups(userId)
+                }
+            }
+            val myProducts = storeId?.let { id ->
+                appUiState.products.filter { it.storeId == id }
+            } ?: emptyList()
+            val storeGroups = storeId?.let { id ->
+                appUiState.groups.filter {
+                    it.storeId == id || myProducts.any { prod -> prod.id == it.productId }
+                }
+            } ?: emptyList()
+            val activeGroups = storeGroups.filter { it.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE && !it.isExpired }
+            val ownerAlias = storeOwner?.ownerAlias ?: storeOwner?.commercialName ?: storeOwner?.name ?: "Bodega"
+            StoreDashboardScreen(
+                products = myProducts,
+                activeGroups = activeGroups,
+                ownerAlias = ownerAlias,
+                onPublishProduct = { navController.navigate(Screen.PublishProduct.route) },
+                onViewProducts = {
+                    navController.navigate(Screen.MyProducts.route) { launchSingleTop = true }
+                },
+                onGroupClick = { groupId ->
+                    navController.navigate(Screen.GroupDetail.createRoute(groupId))
+                },
+                onScanQR = { navController.navigate(Screen.ScanQR.route) },
+                onBack = { navController.popBackStack() },
+                onNavigateToOffers = {
+                    navController.navigate(Screen.MyProducts.route) { launchSingleTop = true }
+                },
+                onNavigateToProfile = { navController.navigate(Screen.StoreProfile.route) },
+                onSwitchToConsumer = {
+                    if (authViewModel.currentRole == com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                        authViewModel.logout()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(Screen.StoreDashboard.route) { inclusive = true }
+                        }
+                    }
+                }
+            )
+        }
+        composable(
+            Screen.OfferPublished.route,
+            arguments = listOf(navArgument(Screen.OfferPublished.OFFER_ID_ARG) { type = NavType.StringType })
+        ) { backStackEntry ->
+            val offerId = backStackEntry.arguments?.getString(Screen.OfferPublished.OFFER_ID_ARG) ?: ""
+            OfferPublishedScreen(
+                offerId = offerId,
+                onViewOffer = {
+                    navController.navigate(Screen.GroupDetail.createRoute(offerId)) {
+                        popUpTo(Screen.StoreDashboard.route) { inclusive = false }
+                    }
+                },
+                onBackToDashboard = {
+                    navController.navigate(Screen.StoreDashboard.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+        composable(Screen.PublishProduct.route) {
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.PublishProduct.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val scope = rememberCoroutineScope()
+            val context = LocalContext.current
+            var errorMessage by remember { mutableStateOf<String?>(null) }
+            var isLoading by remember { mutableStateOf(false) }
+            
+            // Mostrar error si existe
+            errorMessage?.let { error ->
+                LaunchedEffect(error) {
+                    Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    errorMessage = null
+                }
+            }
+            
+            PublishProductScreen(
+                onPublish = { name, imageUrl, cat, normalPrice, groupPrice, min, max, productImage, durationHours ->
+                    val userSnapshot = currentUser
+                    val storeSnapshot = authViewModel.currentStore
+                    scope.launch {
+                        isLoading = true
+                        errorMessage = null
+                        try {
+                            if (userSnapshot == null) {
+                                errorMessage = "Usuario no encontrado. Por favor, inicia sesión nuevamente."
+                                isLoading = false
+                                return@launch
+                            }
+                            
+                            val ownerStore = storeSnapshot ?: storeRepository.getStoresByOwner(userSnapshot.id).firstOrNull()
+                            if (ownerStore == null) {
+                                errorMessage = "No se encontró la bodega asociada. Por favor, verifica tu cuenta."
+                                isLoading = false
+                                android.util.Log.e("StoreNavGraph", "Bodega no encontrada para usuario: ${userSnapshot.id}")
+                                return@launch
+                            }
+                            
+                            val storeId = ownerStore.id
+                            val storeName = ownerStore.name.ifEmpty { ownerStore.commercialName ?: userSnapshot.alias.ifEmpty { "Mi Bodega" } }
+                            val storeDistrict = ownerStore.district.ifEmpty { userSnapshot.district.ifEmpty { "Trujillo" } }
+                                
+                                val product = com.nexusbiz.nexusbiz.data.model.Product(
+                                    name = name,
+                                    description = "",
+                                    category = cat,
+                                    normalPrice = normalPrice,
+                                    groupPrice = groupPrice,
+                                    minGroupSize = min,
+                                    maxGroupSize = max,
+                                    storeId = storeId,
+                                    storeName = storeName,
+                                    district = storeDistrict,
+                                    durationHours = durationHours,
+                                    imageUrl = imageUrl
+                                )
+                                
+                                val productResult = productRepository.createProduct(product)
+                                productResult.fold(
+                                    onSuccess = { createdProduct ->
+                                        val groupResult = groupRepository.createGroup(
+                                            productId = createdProduct.id,
+                                            productName = name,
+                                            productImage = productImage.ifEmpty { "https://via.placeholder.com/150" },
+                                            creatorId = userSnapshot.id,
+                                            creatorAlias = userSnapshot.alias.ifEmpty { "Bodega" },
+                                            targetSize = min,
+                                            storeId = storeId,
+                                            storeName = storeName,
+                                            normalPrice = normalPrice,
+                                            groupPrice = groupPrice,
+                                            durationHours = durationHours,
+                                            initialReservedUnits = 0 // Las bodegas nunca crean participantes automáticos
+                                        )
+                                        
+                                        groupResult.fold(
+                                            onSuccess = { group ->
+                                                isLoading = false
+                                                navController.navigate(Screen.OfferPublished.createRoute(group.id)) {
+                                                    popUpTo(Screen.PublishProduct.route) { inclusive = true }
+                                                }
+                                            },
+                                            onFailure = { error ->
+                                                isLoading = false
+                                                errorMessage = error.message ?: "Error al crear el grupo"
+                                                android.util.Log.e("StoreNavGraph", "Error al crear grupo: ${error.message}", error)
+                                            }
+                                        )
+                                    },
+                                    onFailure = { error ->
+                                        isLoading = false
+                                        errorMessage = error.message ?: "Error al crear el producto"
+                                        android.util.Log.e("StoreNavGraph", "Error al crear producto: ${error.message}", error)
+                                    }
+                                )
+                        } catch (e: Exception) {
+                            isLoading = false
+                            errorMessage = "Error inesperado: ${e.message ?: "Error desconocido"}"
+                            android.util.Log.e("StoreNavGraph", "Error inesperado al publicar producto", e)
+                        }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+                isLoading = isLoading
+            )
+        }
+        composable(Screen.MyProducts.route) {
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.MyProducts.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val storeOwner = authViewModel.currentStore
+            val storeId = storeOwner?.id
+            val ownerUserId = storeOwner?.ownerId
+            val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(ownerUserId) {
+                ownerUserId?.let { userId ->
+                    appViewModel.fetchProducts("")
+                    appViewModel.fetchGroups(userId)
+                }
+            }
+            val myProducts = storeId?.let { id ->
+                appUiState.products.filter { it.storeId == id }
+            } ?: emptyList()
+            val storeGroups = storeId?.let { id ->
+                appUiState.groups.filter {
+                    it.storeId == id || myProducts.any { prod -> prod.id == it.productId }
+                }
+            } ?: emptyList()
+            MyProductsScreen(
+                groups = storeGroups,
+                onGroupClick = { groupId ->
+                    navController.navigate(Screen.StoreGroupDetail.createRoute(groupId))
+                },
+                onBack = { navController.popBackStack() },
+                onNavigateToDashboard = { navController.navigate(Screen.StoreDashboard.route) },
+                onNavigateToProfile = { navController.navigate(Screen.StoreProfile.route) }
+            )
+        }
+        composable(
+            Screen.StoreGroupDetail.route,
+            arguments = listOf(navArgument(Screen.StoreGroupDetail.GROUP_ID_ARG) { type = NavType.StringType })
+        ) { backStackEntry ->
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.StoreGroupDetail.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val groupId = backStackEntry.arguments?.getString(Screen.StoreGroupDetail.GROUP_ID_ARG) ?: ""
+            val context = LocalContext.current
+            val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
+            val currentStore = authViewModel.currentStore
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val scope = rememberCoroutineScope()
+            // Refrescar el grupo periódicamente para ver cambios en tiempo real
+            LaunchedEffect(groupId) { 
+                appViewModel.fetchGroupById(groupId)
+                // Refrescar cada 5 segundos para ver actualizaciones de clientes
+                while (true) {
+                    kotlinx.coroutines.delay(5000)
+                    appViewModel.fetchGroupById(groupId)
+                }
+            }
+            val group = appUiState.groups.firstOrNull { it.id == groupId }
+            // Filtrar participantes excluyendo a la bodega (por storeId y ownerId)
+            // Usar ownerId del store, o currentUser?.id como fallback
+            val storeOwnerId = currentStore?.ownerId ?: currentUser?.id
+            val participantDisplay = remember(group, currentStore?.id, storeOwnerId) { 
+                mapParticipantsForStore(
+                    group, 
+                    storeId = currentStore?.id,
+                    storeOwnerId = storeOwnerId
+                ) 
+            }
+            StoreGroupDetailScreen(
+                group = group,
+                participants = participantDisplay,
+                onBack = { navController.popBackStack() },
+                onShare = { targetGroup ->
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "Únete al grupo \"${targetGroup.productName}\" y consigue el precio grupal de S/ ${
+                                (if (targetGroup.groupPrice > 0) targetGroup.groupPrice else targetGroup.normalPrice)
+                            }."
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Compartir grupo"))
+                },
+                onFinalizeEarly = {
+                    Toast.makeText(context, "Función disponible próximamente", Toast.LENGTH_SHORT).show()
+                },
+                onScanQR = {
+                    navController.navigate(Screen.ScanQR.route)
+                },
+                onPublishSimilar = {
+                    Toast.makeText(context, "Publicar oferta similar próximamente", Toast.LENGTH_SHORT).show()
+                },
+                onViewHistory = {
+                    Toast.makeText(context, "Historial disponible próximamente", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+        composable(Screen.ScanQR.route) {
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.ScanQR.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val scope = rememberCoroutineScope()
+            ScanQRScreen(
+                onQRScanned = { qrData ->
+                    scope.launch { groupRepository.validateGroup(qrData) }
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.StoreProfile.route) {
+            LaunchedEffect(Unit) {
+                if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
+                    navController.navigate(Screen.LoginBodega.route) {
+                        popUpTo(Screen.StoreProfile.route) { inclusive = true }
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val store = authViewModel.currentStore
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            StoreProfileScreen(
+                store = store,
+                user = currentUser,
+                onBack = { navController.popBackStack() },
+                onEditProfile = { navController.navigate(Screen.EditProfile.route) },
+                onChangePassword = { navController.navigate(Screen.ChangePassword.route) },
+                onTermsAndPrivacy = { navController.navigate(Screen.TermsAndPrivacy.route) },
+                onPlanPro = { navController.navigate(Screen.StoreSubscriptionPro.route) },
+                onBoostVisibility = { navController.navigate(Screen.StoreBoostVisibility.route) },
+                onLogout = {
+                    authViewModel.logout()
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onNavigateToDashboard = { navController.navigate(Screen.StoreDashboard.route) },
+                onNavigateToOffers = { navController.navigate(Screen.MyProducts.route) }
+            )
+        }
+        composable(Screen.StoreSubscriptionPro.route) {
+            StoreSubscriptionProScreen(
+                onBack = { navController.popBackStack() },
+                onSubscribe = { }
+            )
+        }
+        composable(Screen.StoreBoostVisibility.route) {
+            StoreBoostVisibilityScreen(
+                onBack = { navController.popBackStack() },
+                onRequestBoost = { }
+            )
+        }
+    }
+}
