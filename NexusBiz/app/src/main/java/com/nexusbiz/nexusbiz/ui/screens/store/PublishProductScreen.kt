@@ -181,18 +181,18 @@ fun PublishProductScreen(
             group != null && group > 0 &&
             Validators.isValidGroupPrice(group, normal) &&
             target != null && target >= 1 &&
-            durationHours > 0 &&
-            imageUri != null // Requiere que se haya seleccionado una imagen
+            durationHours > 0
+            // La imagen es opcional, no se requiere
     }
 
     fun publish() {
-        if (validateForm() && imageUri != null) {
+        if (validateForm()) {
             val normal = normalPrice.toDoubleOrNull() ?: 0.0
             val group = groupPrice.toDoubleOrNull() ?: 0.0
             val target = targetUnits.toIntOrNull() ?: 0
             val durationHours = duration.toIntOrNull() ?: 12
-            // Usar la URI de la imagen seleccionada
-            val finalImageUrl = imageUri.toString()
+            // Usar la URI de la imagen si existe, o cadena vacía si no hay imagen
+            val finalImageUrl = imageUri?.toString() ?: ""
             onPublish(name, finalImageUrl, "General", normal, group, target, target, finalImageUrl, durationHours)
         }
     }
@@ -293,7 +293,7 @@ fun PublishProductScreen(
                                     verticalArrangement = Arrangement.spacedBy(0.dp)
                                 ) {
                                     Text(
-                                        text = "Subir foto",
+                                        text = "Subir foto (opcional)",
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color(0xFF1A1A1A)

@@ -2,6 +2,16 @@ package com.nexusbiz.nexusbiz.navigation
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -10,6 +20,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
@@ -96,7 +112,7 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                     navController.navigate(Screen.MyProducts.route) { launchSingleTop = true }
                 },
                 onGroupClick = { groupId ->
-                    navController.navigate(Screen.GroupDetail.createRoute(groupId))
+                    navController.navigate(Screen.StoreGroupDetail.createRoute(groupId))
                 },
                 onScanQR = { navController.navigate(Screen.ScanQR.route) },
                 onBack = { navController.popBackStack() },
@@ -122,7 +138,7 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             OfferPublishedScreen(
                 offerId = offerId,
                 onViewOffer = {
-                    navController.navigate(Screen.GroupDetail.createRoute(offerId)) {
+                    navController.navigate(Screen.StoreGroupDetail.createRoute(offerId)) {
                         popUpTo(Screen.StoreDashboard.route) { inclusive = false }
                     }
                 },
@@ -326,16 +342,89 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             val currentStore = authViewModel.currentStore
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
+            var isLoadingGroup by remember { mutableStateOf(true) }
+            var groupLoadError by remember { mutableStateOf<String?>(null) }
+            
             // Refrescar el grupo periódicamente para ver cambios en tiempo real
-            LaunchedEffect(groupId) { 
-                appViewModel.fetchGroupById(groupId)
-                // Refrescar cada 5 segundos para ver actualizaciones de clientes
-                while (true) {
-                    kotlinx.coroutines.delay(5000)
+            LaunchedEffect(groupId) {
+                if (groupId.isBlank()) {
+                    groupLoadError = "ID de grupo no válido"
+                    isLoadingGroup = false
+                    return@LaunchedEffect
+                }
+                
+                try {
+                    isLoadingGroup = true
+                    groupLoadError = null
                     appViewModel.fetchGroupById(groupId)
+                    // Esperar un momento para que se actualice el estado
+                    kotlinx.coroutines.delay(500)
+                    isLoadingGroup = false
+                    
+                    // Refrescar cada 5 segundos para ver actualizaciones de clientes
+                    while (true) {
+                        kotlinx.coroutines.delay(5000)
+                        appViewModel.fetchGroupById(groupId)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("StoreNavGraph", "Error al cargar grupo: ${e.message}", e)
+                    groupLoadError = "Error al cargar el grupo: ${e.message}"
+                    isLoadingGroup = false
                 }
             }
             val group = appUiState.groups.firstOrNull { it.id == groupId }
+            
+            // Mostrar estado de carga o error
+            if (isLoadingGroup) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF4F4F7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF10B981))
+                        Text(
+                            text = "Cargando grupo...",
+                            color = Color(0xFF606060),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+                return@composable
+            }
+            
+            if (groupLoadError != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF4F4F7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = groupLoadError ?: "Error desconocido",
+                            color = Color(0xFFDC2626),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Button(
+                            onClick = { navController.popBackStack() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        ) {
+                            Text("Volver")
+                        }
+                    }
+                }
+                return@composable
+            }
             // Filtrar participantes excluyendo a la bodega (por storeId y ownerId)
             // Usar ownerId del store, o currentUser?.id como fallback
             val storeOwnerId = currentStore?.ownerId ?: currentUser?.id
