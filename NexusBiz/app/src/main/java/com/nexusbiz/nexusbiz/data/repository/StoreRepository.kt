@@ -22,15 +22,15 @@ class StoreRepository {
         userLon: Double?
     ): List<Store> {
         return try {
-            // Obtener producto para saber el distrito
-            val product = supabase.from("productos")
+            // Obtener oferta para saber el distrito (en el nuevo esquema, los productos son ofertas)
+            val offer = supabase.from("ofertas")
                 .select {
                     filter { eq("id", productId) }
                 }
                 .decodeSingleOrNull<Map<String, Any>>()
             
-            val productDistrict = product?.get("district") as? String
-            val district = userDistrict?.takeIf { it.isNotBlank() } ?: productDistrict
+            val offerDistrict = offer?.get("district") as? String
+            val district = userDistrict?.takeIf { it.isNotBlank() } ?: offerDistrict
             
             // Obtener bodegas con stock:
             // 1. Del mismo distrito Y con stock

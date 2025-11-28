@@ -68,8 +68,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
 import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.data.model.User
+import com.nexusbiz.nexusbiz.data.model.GamificationLevel
 import com.nexusbiz.nexusbiz.ui.components.TimerDisplay
 import java.text.NumberFormat
 import java.util.Locale
@@ -78,41 +80,53 @@ import java.util.Locale
 @Composable
 fun ProductDetailScreen(
     product: Product?,
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: Offer? = null,
     user: User?,
-    timeRemaining: Long = 0, // Mantener para compatibilidad, pero usar group?.timeRemaining
-    onJoinGroup: (Int) -> Unit,
-    onCreateGroup: (Int) -> Unit,
-    onShareGroup: () -> Unit,
+    timeRemaining: Long = 0, // Mantener para compatibilidad
+    onJoinGroup: (Int) -> Unit = {}, // @Deprecated
+    onCreateReservation: (Int) -> Unit = {},
+    onCreateGroup: (Int) -> Unit = {}, // @Deprecated
+    onShareGroup: () -> Unit = {},
     onViewStores: () -> Unit,
     onBack: () -> Unit
 ) {
-    // IMPORTANTE: Usar el tiempo del grupo directamente para que se actualice automáticamente
-    // El tiempo debe venir del grupo activo de la bodega, no de un parámetro estático
-    // El tiempo se mantiene igual independientemente de las unidades que cambies
-    // Calcular el tiempo restante directamente desde expiresAt del grupo
-    var currentTimeRemaining by remember { mutableStateOf(group?.timeRemaining ?: timeRemaining) }
+    // Usar el tiempo de la oferta si está disponible, sino del grupo (deprecated)
+    var currentTimeRemaining by remember { 
+        mutableStateOf(offer?.timeRemaining ?: group?.timeRemaining ?: timeRemaining) 
+    }
     
-    // Actualizar el tiempo periódicamente basándose en expiresAt del grupo
-    LaunchedEffect(group?.expiresAt) {
-        // Inicializar con el tiempo del grupo
-        val expiresAt = group?.expiresAt ?: 0L
+    // Actualizar el tiempo periódicamente basándose en expiresAt de la oferta o grupo
+    LaunchedEffect(offer?.expiresAt, group?.expiresAt) {
+        val expiresAt = offer?.expiresAt?.let { 
+            try {
+                java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                null
+            }
+        } ?: group?.expiresAt ?: 0L
+        
         if (expiresAt > 0) {
             currentTimeRemaining = maxOf(0, expiresAt - System.currentTimeMillis())
         } else {
             currentTimeRemaining = timeRemaining
         }
         
-        // Actualizar periódicamente para mantenerlo sincronizado
         while (true) {
-            val expiresAtValue = group?.expiresAt ?: 0L
+            val expiresAtValue = offer?.expiresAt?.let { 
+                try {
+                    java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                } catch (e: Exception) {
+                    null
+                }
+            } ?: group?.expiresAt ?: 0L
             if (expiresAtValue > 0) {
                 val newTime = maxOf(0, expiresAtValue - System.currentTimeMillis())
                 currentTimeRemaining = newTime
             } else {
                 currentTimeRemaining = timeRemaining
             }
-            kotlinx.coroutines.delay(1000) // Actualizar cada segundo
+            kotlinx.coroutines.delay(1000)
         }
     }
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale("es", "PE"))
@@ -150,14 +164,12 @@ fun ProductDetailScreen(
         if (quantity > maxQuantity) quantity = maxQuantity
     }
 
-    // IMPORTANTE: Usar currentSize directamente de Supabase (mantenido por trigger)
-    // Faltan X unidades = target_size - current_size
-    // Progreso = current_size / target_size
-    val currentUnits = group?.currentSize ?: 0
-    val targetUnits = (group?.targetSize ?: product.minGroupSize).coerceAtLeast(1)
-    val progress = if (targetUnits > 0) (currentUnits.toFloat() / targetUnits).coerceIn(0f, 1f) else 0f
+    // Usar datos de la oferta si está disponible, sino del grupo (deprecated)
+    val currentUnits = offer?.reservedUnits ?: group?.currentSize ?: 0
+    val targetUnits = (offer?.targetUnits ?: group?.targetSize ?: product.minGroupSize).coerceAtLeast(1)
+    val progress = offer?.progress ?: (if (targetUnits > 0) (currentUnits.toFloat() / targetUnits).coerceIn(0f, 1f) else 0f)
     val previewProgress = if (targetUnits > 0) ((currentUnits + quantity).toFloat() / targetUnits).coerceIn(0f, 1f) else 0f
-    val unitsNeeded = (targetUnits - currentUnits).coerceAtLeast(0)
+    val unitsNeeded = offer?.unitsNeeded ?: (targetUnits - currentUnits).coerceAtLeast(0)
     val totalPrice = product.groupPrice * quantity
     val shareLink = "https://nexusbiz.app/oferta/${product.id}"
     val shareSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -199,7 +211,13 @@ fun ProductDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = { onJoinGroup(quantity) },
+                    onClick = { 
+                        if (offer != null) {
+                            onCreateReservation(quantity)
+                        } else {
+                            onJoinGroup(quantity) // @Deprecated
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                     shape = RoundedCornerShape(12.dp)
@@ -212,8 +230,10 @@ fun ProductDetailScreen(
                 }
                 OutlinedButton(
                     onClick = {
-                        onCreateGroup(quantity)
-                        showShareSheet = true
+                        if (offer == null) {
+                            onCreateGroup(quantity) // @Deprecated
+                            showShareSheet = true
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -361,7 +381,7 @@ fun ProductDetailScreen(
                                         com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFF696969)
                                         com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFB8860B)
                                     },
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                 )
                             }
                         }

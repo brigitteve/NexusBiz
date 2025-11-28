@@ -41,6 +41,9 @@ data class User(
     @SerialName("tier")
     val tier: UserTier = UserTier.BRONZE,
 
+    @SerialName("gamification_level")
+    val gamificationLevel: GamificationLevel? = null,
+
     @SerialName("badges")
     val badges: List<String> = emptyList(),
 
@@ -60,9 +63,18 @@ data class User(
     val createdAt: String? = null
 ) : Parcelable {
     /**
-     * Calcula el tier basado en los puntos acumulados
+     * Calcula el tier basado en los puntos acumulados o gamificationLevel de la BD
      */
     fun calculateTier(): UserTier {
+        // Si viene de la BD, usarlo directamente
+        gamificationLevel?.let {
+            return when (it) {
+                GamificationLevel.BRONCE -> UserTier.BRONZE
+                GamificationLevel.PLATA -> UserTier.SILVER
+                GamificationLevel.ORO -> UserTier.GOLD
+            }
+        }
+        // Si no, calcular desde puntos
         return when {
             points >= 200 -> UserTier.GOLD
             points >= 100 -> UserTier.SILVER

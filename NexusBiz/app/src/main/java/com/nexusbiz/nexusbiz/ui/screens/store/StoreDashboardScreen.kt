@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
 import com.nexusbiz.nexusbiz.data.model.GroupStatus
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.OfferStatus
 import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.ui.components.StoreBottomNavBar
 import java.text.NumberFormat
@@ -56,12 +58,14 @@ import java.util.Locale
 @Composable
 fun StoreDashboardScreen(
     products: List<Product> = emptyList(),
-    activeGroups: List<Group> = emptyList(),
+    activeGroups: List<Group> = emptyList(), // @Deprecated - mantener temporalmente
+    offers: List<Offer> = emptyList(),
     ownerAlias: String = "Bodega",
     storePlan: com.nexusbiz.nexusbiz.data.model.StorePlan = com.nexusbiz.nexusbiz.data.model.StorePlan.FREE,
     onPublishProduct: () -> Unit,
     onViewProducts: () -> Unit,
-    onGroupClick: (String) -> Unit,
+    onGroupClick: (String) -> Unit, // @Deprecated
+    onOfferClick: (String) -> Unit,
     onScanQR: () -> Unit,
     onBack: () -> Unit,
     onNavigateToOffers: () -> Unit,
@@ -74,15 +78,18 @@ fun StoreDashboardScreen(
     val background = Color(0xFFF4F4F7)
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
     // Activos: ofertas con status ACTIVE que no han expirado
-    val activeOffers = remember(activeGroups) {
+    val activeOffersList = remember(offers, activeGroups) {
+        offers.filter { it.status == OfferStatus.ACTIVE && !it.isExpired } +
         activeGroups.filter { it.status == GroupStatus.ACTIVE && !it.isExpired }
     }
     // En retiro: ofertas con status PICKUP (listas para escanear QR)
-    val pickupOffers = remember(activeGroups) {
+    val pickupOffersList = remember(offers, activeGroups) {
+        offers.filter { it.status == OfferStatus.PICKUP } +
         activeGroups.filter { it.status == GroupStatus.PICKUP }
     }
-    // Finalizados: ofertas completadas (VALIDATED o COMPLETED)
-    val finishedOffers = remember(activeGroups) {
+    // Finalizados: ofertas completadas (COMPLETED)
+    val finishedOffersList = remember(offers, activeGroups) {
+        offers.filter { it.status == OfferStatus.COMPLETED } +
         activeGroups.filter { it.status == GroupStatus.VALIDATED || it.status == GroupStatus.COMPLETED }
     }
 
@@ -108,9 +115,9 @@ fun StoreDashboardScreen(
         ) {
             HeaderSection(
                 userName = ownerAlias,
-                activeCount = activeOffers.size,
-                pickupCount = pickupOffers.size,
-                completedCount = finishedOffers.size,
+                activeCount = activeOffersList.size,
+                pickupCount = pickupOffersList.size,
+                completedCount = finishedOffersList.size,
                 onSwitchMode = onSwitchToConsumer,
                 onBack = onBack
             )
@@ -148,7 +155,7 @@ fun StoreDashboardScreen(
                 item {
                     // Verificar si puede publicar más ofertas según el plan
                     val canPublishMore = if (storePlan == com.nexusbiz.nexusbiz.data.model.StorePlan.FREE) {
-                        activeOffers.size < 2
+                        activeOffersList.size < 2
                     } else {
                         true // Plan PRO: ofertas ilimitadas
                     }
@@ -205,12 +212,24 @@ fun StoreDashboardScreen(
                     }
                 }
 
-                if (activeOffers.isEmpty()) {
+                if (activeOffersList.isEmpty()) {
                     item {
                         EmptyOfferState()
                     }
                 } else {
-                    items(activeOffers, key = { it.id }) { group ->
+                    // Mostrar ofertas primero, luego grupos (deprecated)
+                    val offersToShow = offers.filter { it.status == OfferStatus.ACTIVE && !it.isExpired }
+                    val groupsToShow = activeGroups.filter { it.status == GroupStatus.ACTIVE && !it.isExpired }
+                    
+                    items(offersToShow, key = { it.id }) { offer ->
+                        OfferCardForOffer(
+                            offer = offer,
+                            accent = accent,
+                            warning = warning,
+                            onClick = { onOfferClick(offer.id) }
+                        )
+                    }
+                    items(groupsToShow, key = { it.id }) { group ->
                         OfferCard(
                             group = group,
                             accent = accent,
@@ -457,6 +476,144 @@ private fun OfferCard(
                 ) {
                     Text(
                         text = "Ver grupo",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = accent
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun OfferCardForOffer(
+    offer: Offer,
+    accent: Color,
+    warning: Color,
+    onClick: () -> Unit
+) {
+    val progress = offer.progress.coerceIn(0f, 1f)
+    val hoursRemaining = (offer.timeRemaining / (1000 * 60 * 60)).coerceAtLeast(0)
+    val currencyFormat = NumberFormat.getCurrencyInstance(Locale("es", "PE"))
+    val muted = Color(0xFF606060)
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column {
+            // Content
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Product Image
+                AsyncImage(
+                    model = offer.imageUrl?.ifEmpty { "https://via.placeholder.com/150" } ?: "https://via.placeholder.com/150",
+                    contentDescription = offer.productName,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+                
+                // Info
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Product Name and Price
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = offer.productName,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1A1A1A)
+                        )
+                        Text(
+                            text = currencyFormat.format(offer.groupPrice),
+                            fontSize = 14.sp,
+                            color = Color(0xFF606060)
+                        )
+                    }
+                    
+                    // Progress and Stats
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = accent,
+                            trackColor = Color(0xFFF4F4F7)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Inventory2,
+                                    contentDescription = null,
+                                    tint = muted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${offer.reservedUnits}/${offer.targetUnits} unidades",
+                                    fontSize = 14.sp,
+                                    color = muted
+                                )
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.AccessTime,
+                                    contentDescription = null,
+                                    tint = warning,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Quedan ${hoursRemaining}h",
+                                    fontSize = 14.sp,
+                                    color = warning
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Action Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(2.dp, Color(0xFFF4F4F7)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = accent
+                    )
+                ) {
+                    Text(
+                        text = "Ver oferta",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = accent

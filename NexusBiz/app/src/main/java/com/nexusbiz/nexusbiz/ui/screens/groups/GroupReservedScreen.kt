@@ -39,7 +39,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.Reservation
 import com.nexusbiz.nexusbiz.data.model.User
+import com.nexusbiz.nexusbiz.data.repository.OfferRepository
+import kotlinx.coroutines.flow.first
 import java.text.NumberFormat
 import java.util.UUID
 import java.util.Locale
@@ -48,16 +52,23 @@ import kotlin.math.max
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupReservedScreen(
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: Offer? = null,
+    reservations: List<Reservation> = emptyList(),
     currentUser: User?,
     onBack: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onCreateReservation: ((Int) -> Unit)? = null
 ) {
     var showShareModal by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
 
-    if (group == null) {
+    // Usar offer si está disponible, sino group (deprecated)
+    val activeOffer = offer
+    val activeGroup = group
+    
+    if (activeOffer == null && activeGroup == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -67,17 +78,23 @@ fun GroupReservedScreen(
         return
     }
 
-    val progress = (group.progress * 100).coerceIn(0f, 100f)
-    val unitsNeeded = (group.targetSize - group.reservedUnits).coerceAtLeast(0)
-    val participantCount = max(1, group.participantCount)
-    val userReservationQuantity = group.activeParticipants
-        .firstOrNull { it.userId == currentUser?.id }
+    // Usar datos de la oferta si está disponible, sino del grupo
+    val progress = ((activeOffer?.progress ?: activeGroup?.progress ?: 0f) * 100).coerceIn(0f, 100f)
+    val unitsNeeded = activeOffer?.unitsNeeded ?: (activeGroup?.let { (it.targetSize - it.reservedUnits).coerceAtLeast(0) } ?: 0)
+    val reservedUnits = activeOffer?.reservedUnits ?: activeGroup?.reservedUnits ?: 0
+    val targetUnits = activeOffer?.targetUnits ?: activeGroup?.targetSize ?: 0
+    
+    // Obtener reserva del usuario actual
+    val userReservation = reservations.firstOrNull { it.userId == currentUser?.id }
+    val userReservationQuantity = userReservation?.units ?: activeGroup?.activeParticipants
+        ?.firstOrNull { it.userId == currentUser?.id }
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
     
     // Calcular unidades reservadas por otros (excluyendo al usuario actual)
-    val unitsReservedByOthers = group.reservedUnits - userReservationQuantity
+    val unitsReservedByOthers = reservedUnits - userReservationQuantity
+    val participantCount = max(1, reservations.size.takeIf { it > 0 } ?: activeGroup?.participantCount ?: 1)
     
     // Obtener nivel del usuario basado en puntos
     val userLevel = remember(currentUser?.points) {
@@ -89,40 +106,57 @@ fun GroupReservedScreen(
     }
 
     // IMPORTANTE: Solo mostrar participantes reales de la base de datos
-    // NO usar datos mockeados - si no hay participantes, mostrar lista vacía o solo el usuario actual
-    val participants = remember(group.participants, currentUser?.id, userReservationQuantity) {
-        val activeParticipants = group.activeParticipants
-        if (activeParticipants.isNotEmpty()) {
-            // Mapear participantes reales de la base de datos
-            activeParticipants.mapIndexed { index, participant ->
-                val alias = participant.alias.ifBlank { "Participante ${index + 1}" }
-                val isCurrentUser = participant.userId == currentUser?.id
+    // Usar reservas si hay oferta, sino participantes del grupo (deprecated)
+    val participants = remember(reservations, activeGroup?.participants, currentUser?.id, userReservationQuantity) {
+        if (reservations.isNotEmpty()) {
+            // Mapear reservas reales de la base de datos
+            reservations.map { reservation ->
+                val alias = reservation.userAlias?.ifBlank { "Participante" } ?: "Participante"
+                val isCurrentUser = reservation.userId == currentUser?.id
                 ParticipantData(
-                    id = participant.userId.ifBlank { UUID.randomUUID().toString() },
+                    id = reservation.userId.ifBlank { UUID.randomUUID().toString() },
                     name = if (isCurrentUser) "Tú" else alias,
-                    units = participant.reservedUnits.coerceAtLeast(0),
+                    units = reservation.units.coerceAtLeast(0),
                     isYou = isCurrentUser
                 )
             }
-        } else {
-            // Si no hay participantes activos, mostrar solo el usuario actual si tiene reserva
-            if (userReservationQuantity > 0) {
-                listOf(
+        } else if (activeGroup != null) {
+            // Usar participantes del grupo (deprecated)
+            val activeParticipants = activeGroup.activeParticipants
+            if (activeParticipants.isNotEmpty()) {
+                activeParticipants.mapIndexed { index, participant ->
+                    val alias = participant.alias.ifBlank { "Participante ${index + 1}" }
+                    val isCurrentUser = participant.userId == currentUser?.id
                     ParticipantData(
-                        id = currentUser?.id ?: "user-0",
-                        name = "Tú",
-                        units = userReservationQuantity,
-                        isYou = true
+                        id = participant.userId.ifBlank { UUID.randomUUID().toString() },
+                        name = if (isCurrentUser) "Tú" else alias,
+                        units = participant.reservedUnits.coerceAtLeast(0),
+                        isYou = isCurrentUser
                     )
-                )
+                }
             } else {
-                // Lista vacía si no hay participantes
-                emptyList()
+                // Si no hay participantes activos, mostrar solo el usuario actual si tiene reserva
+                if (userReservationQuantity > 0) {
+                    listOf(
+                        ParticipantData(
+                            id = currentUser?.id ?: "user-0",
+                            name = "Tú",
+                            units = userReservationQuantity,
+                            isYou = true
+                        )
+                    )
+                } else {
+                    emptyList()
+                }
             }
+        } else {
+            emptyList()
         }
     }
 
-    val shareLink = remember(group.id) { "https://nexusbiz.app/grupo/${group.id}" }
+    val shareLink = remember(activeOffer?.id, activeGroup?.id) { 
+        "https://nexusbiz.app/oferta/${activeOffer?.id ?: activeGroup?.id}" 
+    }
 
     val handleCopyLink = {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -161,7 +195,7 @@ fun GroupReservedScreen(
                         )
                     }
                     Text(
-                        text = "Grupo – ${group.productName}",
+                        text = "Oferta – ${activeOffer?.productName ?: activeGroup?.productName ?: "Producto"}",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF1A1A1A)
@@ -196,8 +230,9 @@ fun GroupReservedScreen(
                 ) {
                     Column {
                         AsyncImage(
-                            model = group.productImage.ifEmpty { "https://via.placeholder.com/400" },
-                            contentDescription = group.productName,
+                            model = (activeOffer?.imageUrl ?: activeGroup?.productImage)?.takeIf { it.isNotBlank() } 
+                                ?: "https://via.placeholder.com/400",
+                            contentDescription = activeOffer?.productName ?: activeGroup?.productName,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(192.dp),
@@ -211,7 +246,7 @@ fun GroupReservedScreen(
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    text = group.productName,
+                                    text = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF1A1A1A)
@@ -221,7 +256,8 @@ fun GroupReservedScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = group.storeName.ifBlank { "Bodega" },
+                                        text = (activeOffer?.storeName ?: activeGroup?.storeName)?.takeIf { it.isNotBlank() } 
+                                            ?: "Bodega",
                                         fontSize = 14.sp,
                                         color = Color(0xFF606060)
                                     )
@@ -243,7 +279,13 @@ fun GroupReservedScreen(
                                     color = Color(0xFF606060)
                                 )
                                 Text(
-                                    text = currencyFormat.format(group.groupPrice.takeIf { it > 0 } ?: group.normalPrice),
+                                    text = currencyFormat.format(
+                                        activeOffer?.groupPrice?.takeIf { it > 0 } 
+                                            ?: activeGroup?.groupPrice?.takeIf { it > 0 } 
+                                            ?: activeOffer?.normalPrice 
+                                            ?: activeGroup?.normalPrice 
+                                            ?: 0.0
+                                    ),
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF10B981)
@@ -304,13 +346,29 @@ fun GroupReservedScreen(
                                     tint = Color(0xFFFF914D),
                                     modifier = Modifier.size(20.dp)
                                 )
-                                var hoursRemaining by remember(group.expiresAt) {
-                                    mutableStateOf(max(0L, (group.expiresAt - System.currentTimeMillis()) / (1000 * 60 * 60)))
+                                // CORRECCIÓN: Actualizar tiempo restante en tiempo real cada minuto
+                                var hoursRemaining by remember(activeOffer?.expiresAt, activeGroup?.expiresAt) {
+                                    val expiresAt = activeOffer?.expiresAt?.let { 
+                                        try {
+                                            java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                                        } catch (e: Exception) {
+                                            null
+                                        }
+                                    } ?: activeGroup?.expiresAt ?: 0L
+                                    mutableStateOf(max(0L, (expiresAt - System.currentTimeMillis()) / (1000 * 60 * 60)))
                                 }
-                                LaunchedEffect(group.expiresAt) {
-                                    while (hoursRemaining > 0) {
-                                        kotlinx.coroutines.delay(60 * 60 * 1000) // Actualizar cada hora
-                                        hoursRemaining = max(0L, (group.expiresAt - System.currentTimeMillis()) / (1000 * 60 * 60))
+                                // Actualizar cada minuto para mostrar tiempo restante en tiempo real
+                                LaunchedEffect(activeOffer?.expiresAt, activeGroup?.expiresAt) {
+                                    while (true) {
+                                        val expiresAt = activeOffer?.expiresAt?.let { 
+                                            try {
+                                                java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                                            } catch (e: Exception) {
+                                                null
+                                            }
+                                        } ?: activeGroup?.expiresAt ?: 0L
+                                        hoursRemaining = max(0L, (expiresAt - System.currentTimeMillis()) / (1000 * 60 * 60))
+                                        kotlinx.coroutines.delay(60 * 1000) // Actualizar cada minuto
                                     }
                                 }
                                 Text(
@@ -331,7 +389,7 @@ fun GroupReservedScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "${group.reservedUnits} / ${group.targetSize}",
+                                    text = "$reservedUnits / $targetUnits",
                                     fontSize = 30.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF1A1A1A)
@@ -388,7 +446,7 @@ fun GroupReservedScreen(
                             border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.2f))
                         ) {
                             Text(
-                                text = "💡 Para activar el código QR de retiro, el grupo debe alcanzar ${group.targetSize} unidades reservadas",
+                                text = "💡 Para activar el código QR de retiro, la oferta debe alcanzar $targetUnits unidades reservadas",
                                 modifier = Modifier.padding(16.dp),
                                 fontSize = 13.sp,
                                 color = Color(0xFF1A1A1A),
@@ -600,6 +658,87 @@ fun GroupReservedScreen(
 
                 // Action Buttons
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Mostrar botón de reserva solo si el usuario no tiene reserva y la oferta está activa
+                    if (userReservation == null && activeOffer != null && activeOffer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && !activeOffer.isExpired && onCreateReservation != null) {
+                        var quantity by remember { mutableStateOf(1) }
+                        val maxQuantity = remember(currentUser?.points) {
+                            when {
+                                (currentUser?.points ?: 0) >= 300 -> 6
+                                (currentUser?.points ?: 0) >= 100 -> 4
+                                else -> 2
+                            }
+                        }
+                        
+                        LaunchedEffect(maxQuantity) {
+                            if (quantity > maxQuantity) quantity = maxQuantity
+                        }
+                        
+                        // Selector de cantidad
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Cantidad:",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF1A1A1A)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { if (quantity > 1) quantity-- },
+                                    enabled = quantity > 1
+                                ) {
+                                    Text(
+                                        text = "-",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (quantity > 1) Color(0xFF10B981) else Color(0xFFCCCCCC)
+                                    )
+                                }
+                                Text(
+                                    text = "$quantity",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF1A1A1A),
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                IconButton(
+                                    onClick = { if (quantity < maxQuantity && quantity < (activeOffer?.unitsNeeded ?: 0)) quantity++ },
+                                    enabled = quantity < maxQuantity && quantity < (activeOffer?.unitsNeeded ?: 0)
+                                ) {
+                                    Text(
+                                        text = "+",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (quantity < maxQuantity && quantity < (activeOffer?.unitsNeeded ?: 0)) Color(0xFF10B981) else Color(0xFFCCCCCC)
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Button(
+                            onClick = { onCreateReservation(quantity) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                        ) {
+                            Text(
+                                text = "Reservar $quantity ${if (quantity == 1) "unidad" else "unidades"}",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    
                     Button(
                         onClick = {
                             showShareModal = true

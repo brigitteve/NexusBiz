@@ -65,63 +65,79 @@ class ProductRepository {
 
     suspend fun fetchProducts(district: String, category: String? = null, searchQuery: String? = null) {
         try {
-            Log.d("ProductRepository", "Buscando productos - distrito: '$district', categoría: $category, búsqueda: $searchQuery")
-            val items = supabase.from("productos")
+            Log.d("ProductRepository", "Buscando productos desde ofertas - distrito: '$district', categoría: $category, búsqueda: $searchQuery")
+            // En el nuevo esquema, los productos se obtienen desde las ofertas activas
+            // Obtener ofertas activas y convertirlas a productos
+            val remoteOffers = supabase.from("ofertas")
                 .select {
                     filter {
-                        eq("is_active", true)
+                        eq("status", "ACTIVE")
                         if (district.isNotBlank()) {
                             eq("district", district)
                         }
-                        if (category != null && category != "Todos") {
-                            eq("category_name", category)
-                        }
                         if (searchQuery != null && searchQuery.isNotBlank()) {
-                            ilike("name", "%$searchQuery%")
+                            ilike("product_name", "%$searchQuery%")
                         }
                     }
                 }
-                .decodeList<RemoteProduct>()
-            Log.d("ProductRepository", "Productos encontrados en BD: ${items.size}")
-            items.forEach { product ->
-                Log.d("ProductRepository", "Producto: ${product.name}, distrito: ${product.district}, store: ${product.storeName}")
-            }
-            val mappedItems = items.map { remoteProduct ->
-                    // Convertir store_plan String a StorePlan enum
-                    // Si store_plan es null o vacío, usar FREE por defecto
-                    val plan = when (remoteProduct.storePlan?.uppercase()) {
+                .decodeList<com.nexusbiz.nexusbiz.data.remote.model.Offer>()
+            
+            Log.d("ProductRepository", "Ofertas encontradas: ${remoteOffers.size}")
+            
+            // Obtener el plan de la bodega para cada oferta
+            val mappedItems = remoteOffers.mapNotNull { offer ->
+                try {
+                    // Obtener el plan de la bodega
+                    val storeData = supabase.from("bodegas")
+                        .select(columns = Columns.ALL) {
+                            filter { eq("id", offer.storeId) }
+                        }
+                        .decodeSingleOrNull<JsonObject>()
+                    
+                    val planValue = storeData?.get("plan_type")?.jsonPrimitive?.contentOrNull ?: "FREE"
+                    val plan = when (planValue.uppercase()) {
                         "PRO" -> StorePlan.PRO
                         else -> StorePlan.FREE
                     }
-                    // Convertir RemoteProduct a Product
+                    
+                    // Convertir Offer directamente a Product
                     Product(
-                        id = remoteProduct.id,
-                        name = remoteProduct.name,
-                        description = remoteProduct.description,
-                        imageUrl = remoteProduct.imageUrl,
-                        categoryId = remoteProduct.categoryId,
-                        category = remoteProduct.categoryName,
-                        normalPrice = remoteProduct.normalPrice,
-                        groupPrice = remoteProduct.groupPrice,
-                        minGroupSize = remoteProduct.minGroupSize,
-                        maxGroupSize = remoteProduct.maxGroupSize,
-                        storeId = remoteProduct.storeId,
-                        storeName = remoteProduct.storeName,
-                        district = remoteProduct.district,
-                        isActive = remoteProduct.isActive,
-                        durationHours = remoteProduct.durationHours,
+                        id = offer.id,
+                        name = offer.productName,
+                        description = offer.description,
+                        imageUrl = offer.imageUrl,
+                        categoryId = "",
+                        category = category ?: "",
+                        normalPrice = offer.normalPrice,
+                        groupPrice = offer.groupPrice,
+                        minGroupSize = offer.targetUnits,
+                        maxGroupSize = offer.targetUnits,
+                        storeId = offer.storeId,
+                        storeName = offer.storeName,
+                        district = offer.district,
+                        isActive = true,
+                        durationHours = offer.durationHours,
                         storePlan = plan,
-                        createdAt = remoteProduct.createdAt,
-                        updatedAt = remoteProduct.updatedAt
+                        createdAt = offer.createdAt,
+                        updatedAt = offer.updatedAt
                     )
+                } catch (e: Exception) {
+                    Log.e("ProductRepository", "Error al mapear oferta a producto: ${e.message}", e)
+                    null
                 }
-                .sortedWith(
-                    compareByDescending<Product> { it.storePlan == StorePlan.PRO }
-                        .thenByDescending { it.createdAt ?: "" }
-                )
+            }
+            Log.d("ProductRepository", "Productos mapeados: ${mappedItems.size}")
+            mappedItems.forEach { product ->
+                Log.d("ProductRepository", "Producto: ${product.name}, distrito: ${product.district}, store: ${product.storeName}")
+            }
+            
+            val sortedItems = mappedItems.sortedWith(
+                compareByDescending<Product> { it.storePlan == StorePlan.PRO }
+                    .thenByDescending { it.createdAt ?: "" }
+            )
 
-            mutex.withLock { _products.value = mappedItems }
-            Log.d("ProductRepository", "Productos mapeados y guardados: ${mappedItems.size}")
+            mutex.withLock { _products.value = sortedItems }
+            Log.d("ProductRepository", "Productos mapeados y guardados: ${sortedItems.size}")
         } catch (e: IllegalStateException) {
             Log.e("ProductRepository", "Supabase no inicializado", e)
             mutex.withLock { _products.value = emptyList() }
@@ -137,51 +153,78 @@ class ProductRepository {
     
     suspend fun getProductById(productId: String): Product? {
         return try {
-            val remoteProduct = supabase.from("productos")
+            // En el nuevo esquema, buscar en ofertas
+            val remoteOffer = supabase.from("ofertas")
                 .select {
                     filter { eq("id", productId) }
                 }
-                .decodeSingleOrNull<RemoteProduct>() ?: return null
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.Offer>() ?: return null
             
-            // Convertir store_plan String a StorePlan enum
-            // Si store_plan es null o vacío, usar FREE por defecto
-            val plan = when (remoteProduct.storePlan?.uppercase()) {
+            // Obtener el plan de la bodega
+            val storeData = supabase.from("bodegas")
+                .select(columns = Columns.ALL) {
+                    filter { eq("id", remoteOffer.storeId) }
+                }
+                .decodeSingleOrNull<JsonObject>()
+            
+            val planValue = storeData?.get("plan_type")?.jsonPrimitive?.contentOrNull ?: "FREE"
+            val plan = when (planValue.uppercase()) {
                 "PRO" -> StorePlan.PRO
                 else -> StorePlan.FREE
             }
-            // Convertir RemoteProduct a Product
-            Product(
-                id = remoteProduct.id,
-                name = remoteProduct.name,
-                description = remoteProduct.description,
-                imageUrl = remoteProduct.imageUrl,
-                categoryId = remoteProduct.categoryId,
-                category = remoteProduct.categoryName,
-                normalPrice = remoteProduct.normalPrice,
-                groupPrice = remoteProduct.groupPrice,
-                minGroupSize = remoteProduct.minGroupSize,
-                maxGroupSize = remoteProduct.maxGroupSize,
-                storeId = remoteProduct.storeId,
-                storeName = remoteProduct.storeName,
-                district = remoteProduct.district,
-                isActive = remoteProduct.isActive,
-                durationHours = remoteProduct.durationHours,
+            
+            // Convertir Offer a Product
+            val remoteProduct = Product(
+                id = remoteOffer.id,
+                name = remoteOffer.productName,
+                description = remoteOffer.description,
+                imageUrl = remoteOffer.imageUrl,
+                categoryId = "",
+                category = "",
+                normalPrice = remoteOffer.normalPrice,
+                groupPrice = remoteOffer.groupPrice,
+                minGroupSize = remoteOffer.targetUnits,
+                maxGroupSize = remoteOffer.targetUnits,
+                storeId = remoteOffer.storeId,
+                storeName = remoteOffer.storeName,
+                district = remoteOffer.district,
+                isActive = true,
+                durationHours = remoteOffer.durationHours,
                 storePlan = plan,
-                createdAt = remoteProduct.createdAt,
-                updatedAt = remoteProduct.updatedAt
+                createdAt = remoteOffer.createdAt,
+                updatedAt = remoteOffer.updatedAt
             )
+            
+            return remoteProduct
         } catch (e: Exception) {
             Log.e("ProductRepository", "Error al obtener producto por ID: ${e.message}", e)
             null
         }
     }
     
+    /**
+     * Obtiene las categorías disponibles.
+     * 
+     * NOTA: En el esquema actual de Supabase no existe la tabla 'categorias'.
+     * Este método retorna una lista vacía o categorías hardcodeadas.
+     * Si en el futuro se agrega la tabla de categorías, se puede actualizar este método.
+     */
     suspend fun getCategories(): List<Category> {
         return try {
-            supabase.from("categorias")
-                .select()
-                .decodeList<Category>()
-                .sortedBy { it.name }
+            // CORRECCIÓN: La tabla 'categorias' no existe en el esquema actual
+            // Retornar lista vacía o categorías hardcodeadas según sea necesario
+            Log.d("ProductRepository", "getCategories() llamado - tabla 'categorias' no existe, retornando lista vacía")
+            emptyList()
+            
+            // Si se necesitan categorías hardcodeadas, descomentar lo siguiente:
+            /*
+            listOf(
+                Category(id = "1", name = "Alimentos", description = "Productos alimenticios"),
+                Category(id = "2", name = "Bebidas", description = "Bebidas y líquidos"),
+                Category(id = "3", name = "Limpieza", description = "Productos de limpieza"),
+                Category(id = "4", name = "Otros", description = "Otros productos")
+            )
+            */
         } catch (e: IllegalStateException) {
             Log.e("ProductRepository", "Supabase no inicializado", e)
             emptyList()
@@ -228,7 +271,7 @@ class ProductRepository {
                         }
                         .decodeSingleOrNull<JsonObject>()
                     
-                    val planValue = storeData?.get("plan")?.jsonPrimitive?.contentOrNull
+                    val planValue = storeData?.get("plan_type")?.jsonPrimitive?.contentOrNull
                     planValue ?: "FREE"
                 } catch (e: Exception) {
                     Log.w("ProductRepository", "No se pudo obtener el plan de la bodega, usando FREE: ${e.message}")
@@ -257,13 +300,10 @@ class ProductRepository {
             )
             
             Log.d("ProductRepository", "Insertando producto en BD: ${productInsert.name}, imageUrl: ${productInsert.imageUrl}")
-            supabase.from("productos").insert(productInsert)
-            
-            Log.d("ProductRepository", "Producto insertado exitosamente en BD")
-            
-            // refrescar lista
-            fetchProducts(district = newProduct.district, category = null, searchQuery = null)
-            Result.success(newProduct)
+            // En el nuevo esquema, los productos se crean como ofertas
+            // Este método ya no debería usarse directamente, usar OfferRepository.createOffer en su lugar
+            Log.w("ProductRepository", "createProduct está deprecado. Usar OfferRepository.createOffer en su lugar.")
+            Result.failure(Exception("Los productos ahora se crean como ofertas. Usa OfferRepository.createOffer."))
         } catch (e: IllegalStateException) {
             Log.e("ProductRepository", "Supabase no inicializado", e)
             Result.failure(Exception("Error de conexión. Intenta nuevamente."))
@@ -277,26 +317,14 @@ class ProductRepository {
     suspend fun publishProduct(product: Product): Result<Product> = createProduct(product)
     
     suspend fun updateProduct(product: Product): Result<Product> {
-        return try {
-            supabase.from("productos")
-                .update(product) {
-                    filter { eq("id", product.id) }
-                }
-            Result.success(product)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        // En el nuevo esquema, los productos son ofertas, usar OfferRepository para actualizar
+        Log.w("ProductRepository", "updateProduct está deprecado. Los productos ahora son ofertas.")
+        return Result.failure(Exception("Los productos ahora son ofertas. Usa OfferRepository para actualizar."))
     }
     
     suspend fun deleteProduct(productId: String): Result<Unit> {
-        return try {
-            supabase.from("productos")
-                .update(mapOf("is_active" to false)) {
-                    filter { eq("id", productId) }
-                }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        // En el nuevo esquema, los productos son ofertas, usar OfferRepository para eliminar
+        Log.w("ProductRepository", "deleteProduct está deprecado. Los productos ahora son ofertas.")
+        return Result.failure(Exception("Los productos ahora son ofertas. Usa OfferRepository para eliminar."))
     }
 }

@@ -95,6 +95,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.2.0")
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.2.0")
     implementation("io.github.jan-tennert.supabase:storage-kt:2.2.0")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     
     // Ktor HTTP Client Engine (requerido por Supabase)

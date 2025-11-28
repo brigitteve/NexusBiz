@@ -84,15 +84,18 @@ private val StoreSubtleText = Color(0xFF9CA3AF)
 
 @Composable
 fun StoreGroupDetailScreen(
-    group: Group?,
-    participants: List<StoreParticipantDisplay>,
+    group: Group? = null, // @Deprecated
+    offer: com.nexusbiz.nexusbiz.data.model.Offer? = null,
+    reservations: List<com.nexusbiz.nexusbiz.data.model.Reservation> = emptyList(),
+    participants: List<StoreParticipantDisplay> = emptyList(), // @Deprecated
     onBack: () -> Unit,
-    onShare: (Group) -> Unit,
+    onShare: (com.nexusbiz.nexusbiz.data.model.Offer) -> Unit,
     onPublishSimilar: (() -> Unit)? = null,
     onViewHistory: (() -> Unit)? = null,
     onScanQR: (() -> Unit)? = null
 ) {
-    if (group == null) {
+    // Verificar si hay offer O group (group está deprecated pero se mantiene para compatibilidad)
+    if (offer == null && group == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -104,33 +107,81 @@ fun StoreGroupDetailScreen(
         return
     }
 
-    // Usar los participantes proporcionados, o mapear desde el grupo si están vacíos
-    // Asegurar que siempre tengamos una lista válida
-    val participantList = remember(participants, group.id, group.participants) { 
+    // Usar offer si está disponible, sino group (deprecated)
+    val activeOffer = offer
+    val activeGroup = group
+    
+    // Mapear reservas a participantes si hay oferta
+    val participantList = remember(participants, reservations, activeOffer?.id, activeGroup?.id) { 
         if (participants.isNotEmpty()) {
             participants
+        } else if (activeOffer != null && reservations.isNotEmpty()) {
+            // Mapear reservas a participantes para la vista
+            val formatter = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "PE"))
+            reservations.map { reservation ->
+                val alias = reservation.userAlias?.takeIf { it.isNotBlank() } ?: "Participante"
+                val initials = alias.take(2).uppercase()
+                val reservationDate = reservation.reservedAt?.let {
+                    try {
+                        val timestamp = java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                        formatter.format(java.util.Date(timestamp))
+                    } catch (e: Exception) {
+                        "Fecha no disponible"
+                    }
+                } ?: "Fecha no disponible"
+                val state = when {
+                    reservation.isValidated || reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED -> ParticipantState.VALIDATED
+                    reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED -> ParticipantState.PENDING
+                    else -> ParticipantState.PENDING
+                }
+                StoreParticipantDisplay(
+                    name = alias,
+                    initials = initials,
+                    units = reservation.units,
+                    reservationDate = reservationDate,
+                    state = state,
+                    stateConfig = participantStateConfig(state)
+                )
+            }
+        } else if (activeGroup != null) {
+            mapParticipantsForStore(activeGroup)
         } else {
-            mapParticipantsForStore(group)
+            emptyList()
         }
     }
+    
+    // Determinar el estado basado en offer o group
+    val currentStatus = when {
+        activeOffer != null -> when (activeOffer.status) {
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> GroupStatus.EXPIRED
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> GroupStatus.COMPLETED
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE -> GroupStatus.ACTIVE
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> GroupStatus.PICKUP
+        }
+        activeGroup != null -> activeGroup.status
+        else -> GroupStatus.EXPIRED
+    }
 
-    when (group.status) {
+    when (currentStatus) {
         GroupStatus.EXPIRED -> StoreExpiredContent(
-            group = group,
+            group = activeGroup, // @Deprecated
+            offer = activeOffer,
             onBack = onBack,
             onPublishSimilar = onPublishSimilar,
             onClose = onBack
         )
 
         GroupStatus.COMPLETED, GroupStatus.VALIDATED -> StoreCompletedContent(
-            group = group,
+            group = activeGroup, // @Deprecated
+            offer = activeOffer,
             participants = participantList,
             onBack = onBack,
             onViewHistory = onViewHistory
         )
 
         GroupStatus.ACTIVE, GroupStatus.PICKUP -> StoreActiveContent(
-            group = group,
+            group = activeGroup, // @Deprecated
+            offer = activeOffer,
             participants = participantList,
             onBack = onBack,
             onShare = onShare,
@@ -251,57 +302,85 @@ private fun GroupHeaderCard(
 
 @Composable
 private fun StoreActiveContent(
-    group: Group,
+    group: Group? = null, // @Deprecated
+    offer: com.nexusbiz.nexusbiz.data.model.Offer? = null,
     participants: List<StoreParticipantDisplay>,
     onBack: () -> Unit,
-    onShare: (Group) -> Unit,
+    onShare: (com.nexusbiz.nexusbiz.data.model.Offer) -> Unit,
     onScanQR: (() -> Unit)? = null
 ) {
-    val progress = (group.currentSize.toFloat() / max(1, group.targetSize).toFloat()).coerceIn(0f, 1f)
+    val activeOffer = offer
+    val activeGroup = group
+    
+    // Usar datos de offer si está disponible, sino de group (deprecated)
+    val productName = activeOffer?.productName ?: activeGroup?.productName ?: "Producto"
+    val imageUrl = activeOffer?.imageUrl ?: activeGroup?.productImage ?: ""
+    val reservedUnits = activeOffer?.reservedUnits ?: activeGroup?.currentSize ?: 0
+    val targetUnits = activeOffer?.targetUnits ?: activeGroup?.targetSize ?: 0
+    val progress = if (targetUnits > 0) (reservedUnits.toFloat() / targetUnits.toFloat()).coerceIn(0f, 1f) else 0f
     val progressPercent = (progress * 100).toInt()
-    val remaining = group.targetSize - group.currentSize
-    var showParticipants by rememberSaveable(group.id) { mutableStateOf(true) } // Mostrar participantes por defecto
+    val remaining = (targetUnits - reservedUnits).coerceAtLeast(0)
+    val offerId = activeOffer?.id ?: activeGroup?.id ?: ""
+    val createdAt = activeOffer?.createdAt?.let { 
+        try {
+            java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+        } catch (e: Exception) {
+            null
+        }
+    } ?: activeGroup?.createdAt ?: 0L
+    val expiresAt = activeOffer?.expiresAt?.let { 
+        try {
+            java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+        } catch (e: Exception) {
+            null
+        }
+    } ?: activeGroup?.expiresAt ?: 0L
+    
+    val currentStatus = when {
+        activeOffer != null -> when (activeOffer.status) {
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE -> com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> com.nexusbiz.nexusbiz.data.model.GroupStatus.COMPLETED
+            com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> com.nexusbiz.nexusbiz.data.model.GroupStatus.EXPIRED
+        }
+        activeGroup != null -> activeGroup.status
+        else -> com.nexusbiz.nexusbiz.data.model.GroupStatus.EXPIRED
+    }
+    
+    var showParticipants by rememberSaveable(offerId) { mutableStateOf(true) } // Mostrar participantes por defecto
 
     StoreGroupScaffold(
-        title = "Detalles del grupo",
+        title = "Detalles de la oferta",
         onBack = onBack
     ) {
         GroupHeaderCard(
-            productName = group.productName,
-            imageUrl = group.productImage,
-            badgeText = when (group.status) {
+            productName = productName,
+            imageUrl = imageUrl,
+            badgeText = when (currentStatus) {
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> "Completándose"
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> "Listo para retirar"
                 else -> "Activo"
             },
-            badgeColor = when (group.status) {
+            badgeColor = when (currentStatus) {
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> StorePrimary.copy(alpha = 0.15f)
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> StoreAccentBlue.copy(alpha = 0.15f)
                 else -> StorePrimary.copy(alpha = 0.15f)
             },
-            badgeContent = when (group.status) {
+            badgeContent = when (currentStatus) {
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> StorePrimaryDark
                 com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> StoreAccentBlue
                 else -> StorePrimaryDark
             },
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // IMPORTANTE: Usar currentSize directamente de Supabase (mantenido por trigger)
-                    // Faltan X unidades = target_size - current_size
-                    // Progreso = current_size / target_size
-                    val actualReserved = group.currentSize
-                    val actualProgress = if (group.targetSize > 0) actualReserved.toFloat() / group.targetSize.toFloat() else 0f
-                    val actualProgressPercent = (actualProgress * 100).toInt()
-                    val actualRemaining = (group.targetSize - actualReserved).coerceAtLeast(0)
-                    
                     ProgressSection(
-                        reserved = actualReserved,
-                        total = group.targetSize,
-                        progressPercent = actualProgressPercent,
-                        remaining = actualRemaining
+                        reserved = reservedUnits,
+                        total = targetUnits,
+                        progressPercent = progressPercent,
+                        remaining = remaining
                     )
-                    val timeElapsed = formatTimeElapsed(group.createdAt)
-                    val timeRemaining = formatTimeRemaining(group.expiresAt)
+                    val timeElapsed = formatTimeElapsed(createdAt)
+                    val timeRemaining = formatTimeRemaining(expiresAt)
                     InfoSummaryCard(
                         modifier = Modifier.padding(top = 12.dp),
                         items = listOf(
@@ -320,24 +399,24 @@ private fun StoreActiveContent(
         val validatedUnits = participants.filter { it.state == ParticipantState.VALIDATED || it.state == ParticipantState.RETIRED }
             .sumOf { it.units }
         val totalReservedUnits = participants.sumOf { it.units }
-        val pendingUnits = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+        val pendingUnits = if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
             // En PICKUP: pendientes = unidades reservadas - unidades validadas
             totalReservedUnits - validatedUnits
         } else {
             // En ACTIVE: faltan unidades para alcanzar la meta
-            (group.targetSize - totalReservedUnits).coerceAtLeast(0)
+            (targetUnits - totalReservedUnits).coerceAtLeast(0)
         }
         
         // Mostrar estadísticas de reservas/validaciones
         ValidationStatsCard(
-            validated = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+            validated = if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
                 validatedUnits // En PICKUP: mostrar unidades validadas
             } else {
                 totalReservedUnits // En ACTIVE: mostrar unidades reservadas
             },
             pending = pendingUnits,
-            validatedTitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Validados (unidades)" else "Reservadas (unidades)",
-            pendingTitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Por validar (unidades)" else "Faltan (unidades)"
+            validatedTitle = if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Validados (unidades)" else "Reservadas (unidades)",
+            pendingTitle = if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Por validar (unidades)" else "Faltan (unidades)"
         )
 
         ParticipantsExpandableList(
@@ -349,7 +428,7 @@ private fun StoreActiveContent(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Botón "Escanear QR" solo habilitado si estado = PICKUP (cuando se alcanzó la meta)
-            if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+            if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
                 GradientButton(
                     text = "Escanear QR",
                     onClick = onScanQR ?: {}
@@ -357,16 +436,18 @@ private fun StoreActiveContent(
             } else {
                 DisabledButton(
                     text = "Escanear QR", 
-                    subtitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE) 
-                        "Solo disponible cuando se alcance la meta de ${group.targetSize} unidades" 
+                    subtitle = if (currentStatus == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE) 
+                        "Solo disponible cuando se alcance la meta de ${targetUnits} unidades" 
                     else 
                         "No disponible para este estado"
                 )
             }
-            // Botón "Compartir grupo" al final
+            // Botón "Compartir oferta" al final
             GradientButton(
-                text = "Compartir grupo",
-                onClick = { onShare(group) }
+                text = "Compartir oferta",
+                onClick = { 
+                    activeOffer?.let { onShare(it) }
+                }
             )
         }
     }
@@ -374,31 +455,39 @@ private fun StoreActiveContent(
 
 @Composable
 private fun StoreCompletedContent(
-    group: Group,
+    group: Group? = null, // @Deprecated
+    offer: com.nexusbiz.nexusbiz.data.model.Offer? = null,
     participants: List<StoreParticipantDisplay>,
     onBack: () -> Unit,
     onViewHistory: (() -> Unit)?
 ) {
+    val activeOffer = offer
+    val activeGroup = group
+    val productName = activeOffer?.productName ?: activeGroup?.productName ?: "Producto"
+    val imageUrl = activeOffer?.imageUrl ?: activeGroup?.productImage ?: ""
+    val targetUnits = activeOffer?.targetUnits ?: activeGroup?.targetSize ?: 0
+    val offerId = activeOffer?.id ?: activeGroup?.id ?: ""
+    
     // Calcular usando la lista filtrada de participantes (solo clientes, sin bodega)
     val totalReservedByClients = participants.sumOf { it.units }
     val scannedCount = participants.count { it.state == ParticipantState.VALIDATED || it.state == ParticipantState.RETIRED }
     val pendingCount = participants.count { it.state == ParticipantState.PENDING }
     val pendingUnits = participants.filter { it.state == ParticipantState.PENDING }.sumOf { it.units }
-    var showParticipants by rememberSaveable(group.id) { mutableStateOf(false) }
+    var showParticipants by rememberSaveable(offerId) { mutableStateOf(false) }
 
     StoreGroupScaffold(
-        title = "Detalles del grupo",
+        title = "Detalles de la oferta",
         onBack = onBack
     ) {
         GroupHeaderCard(
-            productName = group.productName,
-            imageUrl = group.productImage,
+            productName = productName,
+            imageUrl = imageUrl,
             badgeText = "Finalizado",
             badgeColor = Color(0xFFDBEAFE),
             badgeContent = Color(0xFF1D4ED8),
             content = {
                 StatsGrid(
-                    reservedText = "${totalReservedByClients}/${group.targetSize}",
+                    reservedText = "${totalReservedByClients}/${targetUnits}",
                     soldText = totalReservedByClients.toString(),
                     scannedText = scannedCount.toString()
                 )
@@ -449,25 +538,33 @@ private fun StoreCompletedContent(
 
 @Composable
 private fun StoreExpiredContent(
-    group: Group,
+    group: Group? = null, // @Deprecated
+    offer: com.nexusbiz.nexusbiz.data.model.Offer? = null,
     onBack: () -> Unit,
     onPublishSimilar: (() -> Unit)?,
     onClose: () -> Unit
 ) {
+    val activeOffer = offer
+    val activeGroup = group
+    val productName = activeOffer?.productName ?: activeGroup?.productName ?: "Producto"
+    val imageUrl = activeOffer?.imageUrl ?: activeGroup?.productImage ?: ""
+    val reservedUnits = activeOffer?.reservedUnits ?: activeGroup?.currentSize ?: 0
+    val targetUnits = activeOffer?.targetUnits ?: activeGroup?.targetSize ?: 0
+    
     StoreGroupScaffold(
-        title = "Detalles del grupo",
+        title = "Detalles de la oferta",
         onBack = onBack
     ) {
         GroupHeaderCard(
-            productName = group.productName,
-            imageUrl = group.productImage,
+            productName = productName,
+            imageUrl = imageUrl,
             badgeText = "Expirado",
             badgeColor = StoreBackground,
             badgeContent = StoreMutedText,
             content = {
                 ExpiredProgressSection(
-                    reserved = group.currentSize,
-                    total = group.targetSize
+                    reserved = reservedUnits,
+                    total = targetUnits
                 )
                 Text(
                     text = "Meta no alcanzada",
@@ -1099,3 +1196,4 @@ fun mapParticipantsForStore(
         )
     }
 }
+

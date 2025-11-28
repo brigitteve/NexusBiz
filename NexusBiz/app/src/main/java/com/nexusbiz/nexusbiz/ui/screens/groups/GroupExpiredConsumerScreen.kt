@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,27 +55,38 @@ import kotlin.math.max
 
 @Composable
 fun GroupExpiredConsumerScreen(
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: com.nexusbiz.nexusbiz.data.model.Offer? = null,
     onBack: () -> Unit,
     onQuickBuy: (String) -> Unit,
     onExplore: () -> Unit,
 ) {
-    if (group == null) {
+    val activeOffer = offer
+    val activeGroup = group
+    
+    if (activeOffer == null && activeGroup == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text = "No se pudo cargar la información del grupo")
+            Text(text = "No se pudo cargar la información de la oferta")
         }
         return
     }
 
     val currency = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
-    val groupPrice = if (group.groupPrice > 0) group.groupPrice else group.normalPrice
-    val normalPrice = if (group.normalPrice > 0) group.normalPrice else groupPrice
-    val targetUnits = max(1, group.targetSize)
-    val currentUnits = group.reservedUnits.coerceAtLeast(0)
-    val progress = (currentUnits.toFloat() / targetUnits.toFloat()).coerceIn(0f, 1f)
-    val unitsMissing = max(0, targetUnits - currentUnits)
-    val expiredTime = remember(group.expiresAt) {
-        SimpleDateFormat("HH:mm", Locale("es", "PE")).format(Date(group.expiresAt))
+    val groupPrice = activeOffer?.groupPrice ?: (if (activeGroup?.groupPrice ?: 0.0 > 0) activeGroup!!.groupPrice else activeGroup?.normalPrice ?: 0.0)
+    val normalPrice = activeOffer?.normalPrice ?: (if (activeGroup?.normalPrice ?: 0.0 > 0) activeGroup!!.normalPrice else groupPrice)
+    val targetUnits = max(1, activeOffer?.targetUnits ?: activeGroup?.targetSize ?: 1)
+    val currentUnits = (activeOffer?.reservedUnits ?: activeGroup?.reservedUnits ?: 0).coerceAtLeast(0)
+    val progress = activeOffer?.progress ?: (currentUnits.toFloat() / targetUnits.toFloat()).coerceIn(0f, 1f)
+    val unitsMissing = activeOffer?.unitsNeeded ?: max(0, targetUnits - currentUnits)
+    val expiredTime = remember(activeOffer?.expiresAt, activeGroup?.expiresAt) {
+        val expiresAt = activeOffer?.expiresAt?.let { 
+            try {
+                java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                null
+            }
+        } ?: activeGroup?.expiresAt ?: System.currentTimeMillis()
+        SimpleDateFormat("HH:mm", Locale("es", "PE")).format(Date(expiresAt))
     }
 
     Column(
@@ -103,7 +115,7 @@ fun GroupExpiredConsumerScreen(
                     )
                 }
                 Text(
-                    text = "Grupo – ${group.productName}",
+                    text = "Oferta – ${activeOffer?.productName ?: activeGroup?.productName ?: "Producto"}",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF1A1A1A)
@@ -252,8 +264,8 @@ fun GroupExpiredConsumerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AsyncImage(
-                        model = group.productImage.ifEmpty { "https://via.placeholder.com/150" },
-                        contentDescription = group.productName,
+                        model = (activeOffer?.imageUrl ?: activeGroup?.productImage ?: "").ifEmpty { "https://via.placeholder.com/150" },
+                        contentDescription = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                         modifier = Modifier
                             .size(80.dp)
                             .clip(RoundedCornerShape(18.dp)),
@@ -261,13 +273,13 @@ fun GroupExpiredConsumerScreen(
                     )
                     Column {
                         Text(
-                            text = group.productName,
+                            text = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF1A1A1A)
                         )
                         Text(
-                            text = group.storeName.ifBlank { "Bodega" },
+                            text = (activeOffer?.storeName ?: activeGroup?.storeName ?: "").ifBlank { "Bodega" },
                             fontSize = 13.sp,
                             color = Color(0xFF606060)
                         )
@@ -330,7 +342,7 @@ fun GroupExpiredConsumerScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
-                    onClick = { onQuickBuy(group.productId.ifBlank { group.id }) },
+                    onClick = { onQuickBuy(activeOffer?.id ?: activeGroup?.productId?.ifBlank { activeGroup?.id } ?: "") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),

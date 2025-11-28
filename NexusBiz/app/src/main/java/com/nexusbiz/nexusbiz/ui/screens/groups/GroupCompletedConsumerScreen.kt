@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.Reservation
 import com.nexusbiz.nexusbiz.data.model.User
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -49,13 +51,18 @@ import kotlin.math.max
 
 @Composable
 fun GroupCompletedConsumerScreen(
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: Offer? = null,
+    reservations: List<Reservation> = emptyList(),
     currentUser: User?,
     onBack: () -> Unit,
     onViewOffers: () -> Unit,
     onViewGroups: () -> Unit
 ) {
-    if (group == null) {
+    val activeOffer = offer
+    val activeGroup = group
+    
+    if (activeOffer == null && activeGroup == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text = "Reserva no encontrada")
         }
@@ -63,23 +70,34 @@ fun GroupCompletedConsumerScreen(
     }
 
     val currency = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
-    val groupPrice = if (group.groupPrice > 0) group.groupPrice else group.normalPrice
-    val normalPrice = if (group.normalPrice > 0) group.normalPrice else groupPrice
-    val participantCount = max(1, group.participantCount)
-    val userParticipant = group.activeParticipants.firstOrNull { it.userId == currentUser?.id }
-    val userReservationQuantity = userParticipant?.reservedUnits?.coerceAtLeast(0) ?: 0
+    val groupPrice = activeOffer?.groupPrice ?: (if (activeGroup?.groupPrice ?: 0.0 > 0) activeGroup!!.groupPrice else activeGroup?.normalPrice ?: 0.0)
+    val normalPrice = activeOffer?.normalPrice ?: (if (activeGroup?.normalPrice ?: 0.0 > 0) activeGroup!!.normalPrice else groupPrice)
+    
+    // Obtener reserva del usuario
+    val userReservation = reservations.firstOrNull { it.userId == currentUser?.id }
+    val userParticipant = activeGroup?.activeParticipants?.firstOrNull { it.userId == currentUser?.id }
+    val userReservationQuantity = userReservation?.units ?: userParticipant?.reservedUnits?.coerceAtLeast(0) ?: 0
     val savings = max(0.0, (normalPrice - groupPrice) * userReservationQuantity)
     val completedGroupsCount = currentUser?.completedGroups ?: 0
     
-    // Obtener fecha de retiro del participante (validated_at)
-    val pickupDateFormatted = remember(userParticipant?.validatedAt) {
-        if (userParticipant?.validatedAt != null && userParticipant.validatedAt > 0) {
-            SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date(userParticipant.validatedAt))
+    // Obtener fecha de retiro (validated_at de la reserva o participante)
+    val pickupDateFormatted = remember(userReservation?.validatedAt, userParticipant?.validatedAt) {
+        val validatedAt = userReservation?.validatedAt?.let {
+            try {
+                java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                null
+            }
+        } ?: userParticipant?.validatedAt
+        
+        if (validatedAt != null && validatedAt > 0) {
+            SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date(validatedAt))
         } else {
-            // Fallback a la fecha actual si no hay validated_at
             SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date())
         }
     }
+    
+    val participantCount = max(1, reservations.size.takeIf { it > 0 } ?: activeGroup?.participantCount ?: 1)
 
     Column(
         modifier = Modifier
@@ -108,7 +126,7 @@ fun GroupCompletedConsumerScreen(
                     )
                 }
                 Text(
-                    text = "Grupo – ${group.productName}",
+                    text = "Oferta – ${activeOffer?.productName ?: activeGroup?.productName ?: "Producto"}",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF1A1A1A)
@@ -208,7 +226,7 @@ fun GroupCompletedConsumerScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
-                    SummaryRow("Producto:", group.productName)
+                    SummaryRow("Producto:", activeOffer?.productName ?: activeGroup?.productName ?: "Producto")
                     SummaryRow("Cantidad reservada:", "$userReservationQuantity")
                     SummaryRow("Fecha de retiro:", pickupDateFormatted)
                     Surface(
@@ -349,8 +367,8 @@ fun GroupCompletedConsumerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AsyncImage(
-                        model = group.productImage.ifEmpty { "https://via.placeholder.com/150" },
-                        contentDescription = group.productName,
+                        model = (activeOffer?.imageUrl ?: activeGroup?.productImage ?: "").ifEmpty { "https://via.placeholder.com/150" },
+                        contentDescription = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                         modifier = Modifier
                             .size(70.dp)
                             .clip(RoundedCornerShape(16.dp)),
@@ -358,13 +376,13 @@ fun GroupCompletedConsumerScreen(
                     )
                     Column {
                         Text(
-                            text = group.productName,
+                            text = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF1A1A1A)
                         )
                         Text(
-                            text = group.storeName.ifBlank { "Bodega" },
+                            text = (activeOffer?.storeName ?: activeGroup?.storeName ?: "").ifBlank { "Bodega" },
                             fontSize = 12.sp,
                             color = Color(0xFF606060)
                         )

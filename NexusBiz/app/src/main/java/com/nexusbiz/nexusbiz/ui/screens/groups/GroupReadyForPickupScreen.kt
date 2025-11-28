@@ -59,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
 import com.nexusbiz.nexusbiz.data.model.GroupStatus
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.Reservation
 import com.nexusbiz.nexusbiz.data.model.User
 import java.text.NumberFormat
 import java.util.Locale
@@ -67,7 +69,9 @@ import kotlin.math.max
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupReadyForPickupScreen(
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: Offer? = null,
+    reservations: List<Reservation> = emptyList(),
     currentUser: User?,
     onBack: () -> Unit,
     onViewQR: () -> Unit
@@ -75,7 +79,11 @@ fun GroupReadyForPickupScreen(
     val context = LocalContext.current
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
 
-    if (group == null) {
+    // Usar offer si está disponible, sino group (deprecated)
+    val activeOffer = offer
+    val activeGroup = group
+    
+    if (activeOffer == null && activeGroup == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -85,66 +93,91 @@ fun GroupReadyForPickupScreen(
         return
     }
 
-    val userReservationQuantity = group.activeParticipants
-        .firstOrNull { it.userId == currentUser?.id }
+    // Obtener reserva del usuario actual
+    val userReservation = reservations.firstOrNull { it.userId == currentUser?.id }
+    val userReservationQuantity = userReservation?.units ?: activeGroup?.activeParticipants
+        ?.firstOrNull { it.userId == currentUser?.id }
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
     
     // Calcular ahorro del cliente
-    val groupPrice = group.groupPrice.takeIf { it > 0 } ?: group.normalPrice
-    val normalPrice = group.normalPrice.takeIf { it > 0 } ?: groupPrice
+    val groupPrice = activeOffer?.groupPrice?.takeIf { it > 0 } 
+        ?: activeGroup?.groupPrice?.takeIf { it > 0 } 
+        ?: activeOffer?.normalPrice 
+        ?: activeGroup?.normalPrice 
+        ?: 0.0
+    val normalPrice = activeOffer?.normalPrice?.takeIf { it > 0 } 
+        ?: activeGroup?.normalPrice?.takeIf { it > 0 } 
+        ?: groupPrice
     val savings = max(0.0, (normalPrice - groupPrice) * userReservationQuantity)
     val totalReservationPrice = groupPrice * userReservationQuantity
     
     // IMPORTANTE: Solo mostrar participantes reales de la base de datos
-    // NO usar datos mockeados - usar el estado real de validación de cada participante
-    val participants = remember(group.participants, currentUser?.id, userReservationQuantity) {
-        val activeParticipants = group.activeParticipants
-        if (activeParticipants.isNotEmpty()) {
-            // Mapear participantes reales con su estado real de validación
-            activeParticipants.map { participant ->
-                val isCurrentUser = participant.userId == currentUser?.id
+    // Usar reservas si hay oferta, sino participantes del grupo (deprecated)
+    val participants = remember(reservations, activeGroup?.participants, currentUser?.id, userReservationQuantity) {
+        if (reservations.isNotEmpty()) {
+            // Mapear reservas reales con su estado real de validación
+            reservations.map { reservation ->
+                val isCurrentUser = reservation.userId == currentUser?.id
                 val status = when {
-                    participant.isValidated || participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED -> "completed"
-                    participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED -> "pending" // No debería aparecer, pero por seguridad
+                    reservation.isValidated || reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED -> "completed"
+                    reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED -> "pending"
                     else -> "pending"
                 }
                 ParticipantPickupData(
-                    id = participant.userId,
-                    name = if (isCurrentUser) "Tú" else participant.alias.ifBlank { "Participante" },
-                    units = participant.reservedUnits.coerceAtLeast(0),
+                    id = reservation.userId,
+                    name = if (isCurrentUser) "Tú" else reservation.userAlias?.ifBlank { "Participante" } ?: "Participante",
+                    units = reservation.units.coerceAtLeast(0),
                     status = status,
                     isYou = isCurrentUser
                 )
             }
-        } else {
-            // Si no hay participantes activos, mostrar solo el usuario actual si tiene reserva
-            if (userReservationQuantity > 0) {
-                listOf(
+        } else if (activeGroup != null) {
+            // Usar participantes del grupo (deprecated)
+            val activeParticipants = activeGroup.activeParticipants
+            if (activeParticipants.isNotEmpty()) {
+                activeParticipants.map { participant ->
+                    val isCurrentUser = participant.userId == currentUser?.id
+                    val status = when {
+                        participant.isValidated || participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED -> "completed"
+                        participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED -> "pending"
+                        else -> "pending"
+                    }
                     ParticipantPickupData(
-                        id = currentUser?.id ?: "user-0",
-                        name = "Tú",
-                        units = userReservationQuantity,
-                        status = "pending",
-                        isYou = true
+                        id = participant.userId,
+                        name = if (isCurrentUser) "Tú" else participant.alias.ifBlank { "Participante" },
+                        units = participant.reservedUnits.coerceAtLeast(0),
+                        status = status,
+                        isYou = isCurrentUser
                     )
-                )
+                }
             } else {
-                // Lista vacía si no hay participantes
-                emptyList()
+                if (userReservationQuantity > 0) {
+                    listOf(
+                        ParticipantPickupData(
+                            id = currentUser?.id ?: "user-0",
+                            name = "Tú",
+                            units = userReservationQuantity,
+                            status = "pending",
+                            isYou = true
+                        )
+                    )
+                } else {
+                    emptyList()
+                }
             }
+        } else {
+            emptyList()
         }
     }
 
     val handleNavigate = {
-        // Usar storeId para obtener dirección completa si está disponible
-        // Por ahora usar storeName como fallback
-        val query = if (group.storeId.isNotBlank()) {
-            Uri.encode("${group.storeName}, ${currentUser?.district ?: ""}")
-        } else {
-            Uri.encode(group.storeName.ifBlank { "Bodega" })
-        }
+        // Usar pickupAddress de la oferta si está disponible, sino storeName del grupo
+        val address = activeOffer?.pickupAddress 
+            ?: activeGroup?.storeName?.takeIf { it.isNotBlank() } 
+            ?: "Bodega"
+        val query = Uri.encode("$address, ${currentUser?.district ?: ""}")
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$query"))
         context.startActivity(intent)
     }
@@ -179,7 +212,7 @@ fun GroupReadyForPickupScreen(
                         )
                     }
                     Text(
-                        text = "Grupo – ${group.productName}",
+                        text = "Oferta – ${activeOffer?.productName ?: activeGroup?.productName ?: "Producto"}",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF1A1A1A)
@@ -298,7 +331,7 @@ fun GroupReadyForPickupScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "${group.reservedUnits} / ${group.targetSize}",
+                                    text = "${activeGroup?.reservedUnits ?: activeOffer?.reservedUnits ?: 0} / ${activeGroup?.targetSize ?: activeOffer?.targetUnits ?: 0}",
                                     modifier = Modifier.fillMaxWidth(),
                                     fontSize = 30.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -512,8 +545,9 @@ fun GroupReadyForPickupScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         AsyncImage(
-                            model = group.productImage.ifEmpty { "https://via.placeholder.com/400" },
-                            contentDescription = group.productName,
+                            model = (activeOffer?.imageUrl ?: activeGroup?.productImage)?.takeIf { it.isNotBlank() } 
+                                ?: "https://via.placeholder.com/400",
+                            contentDescription = activeOffer?.productName ?: activeGroup?.productName,
                             modifier = Modifier
                                 .size(80.dp)
                                 .clip(RoundedCornerShape(16.dp)),
@@ -524,7 +558,7 @@ fun GroupReadyForPickupScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = group.productName,
+                                text = activeOffer?.productName ?: activeGroup?.productName ?: "Producto",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF1A1A1A)
@@ -534,7 +568,8 @@ fun GroupReadyForPickupScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = group.storeName.ifBlank { "Bodega" },
+                                    text = (activeOffer?.storeName ?: activeGroup?.storeName)?.takeIf { it.isNotBlank() } 
+                                        ?: "Bodega",
                                     fontSize = 14.sp,
                                     color = Color(0xFF606060)
                                 )

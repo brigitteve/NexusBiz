@@ -167,6 +167,8 @@ enum class ReservationStatus {
     RESERVED,
     @SerialName("VALIDATED")
     VALIDATED,
+    @SerialName("EXPIRED")
+    EXPIRED,
     @SerialName("CANCELLED")
     CANCELLED
 }

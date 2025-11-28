@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusbiz.nexusbiz.data.model.Category
 import com.nexusbiz.nexusbiz.data.model.Product
+import com.nexusbiz.nexusbiz.data.model.Offer
 import com.nexusbiz.nexusbiz.ui.components.BottomNavBar
 import com.nexusbiz.nexusbiz.ui.components.ProductCard
 import com.nexusbiz.nexusbiz.ui.components.SeleccionarDistritoModal
@@ -94,7 +95,8 @@ import kotlinx.coroutines.flow.first
 fun HomeScreen(
     district: String = "Trujillo",
     products: List<Product> = emptyList(),
-    groups: List<com.nexusbiz.nexusbiz.data.model.Group> = emptyList(),
+    groups: List<com.nexusbiz.nexusbiz.data.model.Group> = emptyList(), // @Deprecated - mantener temporalmente
+    offers: List<Offer> = emptyList(),
     categories: List<Category> = emptyList(),
     onProductClick: (String) -> Unit,
     onCategoryClick: (String) -> Unit,
@@ -497,13 +499,19 @@ fun HomeScreen(
                         )
                     }
                     items(products) { product ->
-                        // Buscar grupo activo para este producto
-                        // Verificar que el grupo no haya expirado usando el tiempo real
+                        // Buscar oferta activa para este producto (por product_key o nombre)
+                        val activeOffer = offers.firstOrNull { 
+                            (it.productKey.equals(product.name.lowercase().trim(), ignoreCase = true) ||
+                             it.productName.equals(product.name, ignoreCase = true)) &&
+                            it.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && 
+                            !it.isExpired
+                        }
+                        // También buscar grupo activo (deprecated) para compatibilidad
                         val now = System.currentTimeMillis()
                         val activeGroup = groups.firstOrNull { 
                             it.productId == product.id && 
                             it.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE && 
-                            it.expiresAt > now // Verificar tiempo real, no solo isExpired
+                            it.expiresAt > now
                         }
                         ProductCard(
                             product = product,
@@ -511,7 +519,8 @@ fun HomeScreen(
                             modifier = Modifier
                                 .padding(horizontal = 16.dp)
                                 .shadow(2.dp, RoundedCornerShape(16.dp)),
-                            activeGroup = activeGroup
+                            activeGroup = activeGroup, // @Deprecated
+                            activeOffer = activeOffer
                         )
                     }
                 }

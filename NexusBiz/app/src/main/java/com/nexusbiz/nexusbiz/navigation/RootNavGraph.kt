@@ -7,7 +7,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
-import com.nexusbiz.nexusbiz.data.repository.GroupRepository
+import com.nexusbiz.nexusbiz.data.repository.OfferRepository
 import com.nexusbiz.nexusbiz.data.repository.ProductRepository
 import com.nexusbiz.nexusbiz.data.repository.StoreRepository
 import com.nexusbiz.nexusbiz.ui.viewmodel.AppViewModel
@@ -27,7 +27,7 @@ fun RootNavGraph(
     appViewModel: AppViewModel,
     authRepository: AuthRepository,
     productRepository: ProductRepository,
-    groupRepository: GroupRepository,
+    offerRepository: OfferRepository,
     storeRepository: StoreRepository
 ) {
     val authState by authViewModel.uiState.collectAsStateWithLifecycle()
@@ -69,7 +69,7 @@ fun RootNavGraph(
             appViewModel = appViewModel,
             authRepository = authRepository,
             productRepository = productRepository,
-            groupRepository = groupRepository
+            offerRepository = offerRepository
         )
         storeNavGraph(
             navController = navController,
@@ -77,7 +77,7 @@ fun RootNavGraph(
             appViewModel = appViewModel,
             authRepository = authRepository,
             productRepository = productRepository,
-            groupRepository = groupRepository,
+            offerRepository = offerRepository,
             storeRepository = storeRepository
         )
         sharedNavGraph(

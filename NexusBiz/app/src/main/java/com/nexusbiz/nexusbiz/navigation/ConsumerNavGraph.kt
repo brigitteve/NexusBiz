@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
 import android.content.SharedPreferences
+import android.util.Log
 import android.widget.Toast
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -20,9 +21,10 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.navArgument
 import com.nexusbiz.nexusbiz.data.model.GroupStatus
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
-import com.nexusbiz.nexusbiz.data.repository.GroupRepository
+import com.nexusbiz.nexusbiz.data.repository.OfferRepository
 import com.nexusbiz.nexusbiz.data.repository.ProductRepository
 import com.nexusbiz.nexusbiz.util.onSuccess
+import com.nexusbiz.nexusbiz.util.onFailure
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupCompletedConsumerScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupDetailScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupExpiredConsumerScreen
@@ -50,7 +52,7 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
     appViewModel: AppViewModel,
     authRepository: AuthRepository,
     productRepository: ProductRepository,
-    groupRepository: GroupRepository
+    offerRepository: OfferRepository
 ) {
     navigation(
         route = CONSUMER_GRAPH_ROUTE,
@@ -80,17 +82,32 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 }
             }
             
-            // Obtener productos del distrito del usuario Y todos los grupos activos
+            // Obtener productos del distrito del usuario Y todas las ofertas activas
             LaunchedEffect(selectedCategory, searchQuery, userDistrict) {
                 appViewModel.fetchProducts(userDistrict, selectedCategory, searchQuery)
-                // IMPORTANTE: Cargar TODOS los grupos activos de la BD para mostrar ofertas reales
-                appViewModel.fetchAllActiveGroups()
+                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD para mostrar ofertas reales
+                appViewModel.fetchAllActiveOffers(userDistrict)
             }
-            // Refrescar grupos activos periódicamente para mantener sincronización con la BD
-            LaunchedEffect(Unit) {
-                while (true) {
-                    kotlinx.coroutines.delay(10000) // Refrescar cada 10 segundos
-                    appViewModel.fetchAllActiveGroups()
+            
+            // INTEGRACIÓN REALTIME: Iniciar suscripción en tiempo real para HomeScreen (cliente)
+            // Escucha cambios en ofertas del distrito y reservas del usuario
+            // Cuando hay cambios, las ofertas se actualizan automáticamente y las cards se mueven entre secciones
+            val currentUserId = currentUser?.id
+            LaunchedEffect(userDistrict, currentUserId) {
+                if (userDistrict.isNotBlank() && currentUserId != null) {
+                    appViewModel.startRealtimeUpdates(
+                        com.nexusbiz.nexusbiz.ui.viewmodel.RealtimeContext(
+                            district = userDistrict,
+                            userId = currentUserId
+                        )
+                    )
+                }
+            }
+            
+            // Detener suscripción cuando se sale de la pantalla
+            androidx.compose.runtime.DisposableEffect(userDistrict, currentUser?.id) {
+                onDispose {
+                    appViewModel.stopRealtimeUpdates()
                 }
             }
             LaunchedEffect(Unit) {
@@ -113,7 +130,7 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             HomeScreen(
                 district = userDistrict,
                 products = appUiState.products,
-                groups = appUiState.groups,
+                offers = appUiState.offers,
                 categories = categories,
                 onProductClick = { productId ->
                     navController.navigate(Screen.ProductDetail.createRoute(productId))
@@ -185,190 +202,132 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val userDistrict = currentUser?.district?.takeIf { it.isNotBlank() } ?: "Trujillo"
-            // Refrescar productos y TODOS los grupos activos cuando cambia el productId o el usuario
+            // Refrescar productos y TODAS las ofertas activas cuando cambia el productId o el usuario
             LaunchedEffect(productId, currentUser?.id, userDistrict) {
                 appViewModel.fetchProducts(userDistrict, null, null)
-                // IMPORTANTE: Cargar TODOS los grupos activos de la BD, no solo del usuario
-                appViewModel.fetchAllActiveGroups()
-                // También cargar grupos del usuario para sus reservas
-                currentUser?.let { appViewModel.fetchGroups(it.id) }
+                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD, no solo del usuario
+                appViewModel.fetchAllActiveOffers(userDistrict)
+                // También cargar ofertas del usuario para sus reservas
+                currentUser?.let { appViewModel.fetchOffers(it.id) }
             }
-            // Refrescar periódicamente para ver nuevas ofertas de bodegueros
-            LaunchedEffect(productId) {
-                kotlinx.coroutines.delay(10000) // Esperar 10 segundos antes del primer refresh
-                while (true) {
-                    appViewModel.fetchProducts(userDistrict, null, null)
-                    // IMPORTANTE: Refrescar TODOS los grupos activos para mantener sincronización
-                    appViewModel.fetchAllActiveGroups()
-                    // También refrescar grupos del usuario
-                    currentUser?.let { appViewModel.fetchGroups(it.id) }
-                    kotlinx.coroutines.delay(10000) // Refrescar cada 10 segundos
-                }
-            }
+            // RealtimeService actualizará automáticamente las ofertas cuando haya cambios
+            // No es necesario hacer polling periódico
             val product = appUiState.products.firstOrNull { it.id == productId }
-            // Mostrar grupos activos que no hayan expirado
-            // Los grupos creados por bodegueros pueden no tener participantes aún, pero deben ser visibles
-            // Verificar tiempo real usando expiresAt
-            val now = System.currentTimeMillis()
-            val activeGroup = appUiState.groups.firstOrNull {
-                it.productId == productId && 
-                it.status == GroupStatus.ACTIVE && 
-                it.expiresAt > now // Verificar tiempo real, no solo isExpired
+            // Buscar oferta activa para este producto (por product_key o nombre)
+            val activeOffer = appUiState.offers.firstOrNull { 
+                (it.productKey.equals(product?.name?.lowercase()?.trim(), ignoreCase = true) ||
+                 it.productName.equals(product?.name, ignoreCase = true)) &&
+                it.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && 
+                !it.isExpired
             }
+            // Buscar solo ofertas activas (grupos deprecated)
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
             ProductDetailScreen(
                 product = product,
-                group = activeGroup,
+                offer = activeOffer,
                 user = currentUser,
-                timeRemaining = activeGroup?.timeRemaining ?: 0,
+                timeRemaining = activeOffer?.timeRemaining ?: 0,
                 onJoinGroup = { quantity ->
-                    // Validar que solo CLIENTES pueden unirse a grupos
+                    // @Deprecated - Esta función ya no está disponible
+                    // Usar onCreateReservation en su lugar
+                    Toast.makeText(context, "Por favor usa el botón de reserva", Toast.LENGTH_SHORT).show()
+                },
+                onCreateReservation = { quantity ->
+                    // Validar que solo CLIENTES pueden hacer reservas
                     if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.CLIENTE) {
                         Toast.makeText(context, "Solo los clientes pueden hacer reservas", Toast.LENGTH_SHORT).show()
                         return@ProductDetailScreen
                     }
                     
-                    currentUser?.let { user ->
-                        scope.launch {
-                            val targetGroup = activeGroup ?: product?.let { prod ->
-                                groupRepository.createGroup(
-                                    productId = prod.id,
-                                    productName = prod.name,
-                                    productImage = prod.imageUrl ?: "",
-                                    creatorId = user.id,
-                                    creatorAlias = user.alias,
-                                    targetSize = prod.minGroupSize,
-                                    storeId = prod.storeId,
-                                    storeName = prod.storeName,
-                                    normalPrice = prod.normalPrice,
-                                    groupPrice = prod.groupPrice,
-                                    initialReservedUnits = 0 // No crear participante automático
-                                ).getOrNull()
-                            }
-                            targetGroup?.let { group ->
-                                if (activeGroup != null) {
-                                    val result = groupRepository.joinGroup(
-                                        group.id,
-                                        user.id,
-                                        user.alias,
-                                        user.avatar ?: "",
-                                        user.district,
-                                        quantity,
-                                        user.points
-                                    )
-                                    result.onSuccess { updatedGroup ->
-                                        // Verificar si es la primera vez que el usuario se une a este grupo
-                                        val isFirstTime = updatedGroup.participants.none { 
-                                            it.userId == user.id && it.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED 
-                                        } || updatedGroup.participants.count { it.userId == user.id } == 1
-                                        
-                                        // Solo otorgar puntos si es la primera vez
-                                        if (isFirstTime) {
-                                            authRepository.addPoints(user.id, 5, "Unirse al grupo")
-                                        }
-                                        
-                                        // Verificar si el grupo alcanzó la meta (pasó a PICKUP)
-                                        if (updatedGroup.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
-                                            // Otorgar +20 puntos a todos los participantes por completar el grupo
-                                            updatedGroup.participants.forEach { participant ->
-                                                if (participant.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED) {
-                                                    authRepository.addPoints(participant.userId, 20, "Completar grupo")
-                                                }
-                                            }
-                                        }
-                                        
-                                        navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
-                                    }
-                                    result.onFailure { error ->
-                                        Toast.makeText(context, error.message ?: "Error al reservar", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    // Si se creó un grupo nuevo, ahora unirse a él
-                                    val result = groupRepository.joinGroup(
-                                        group.id,
-                                        user.id,
-                                        user.alias,
-                                        user.avatar ?: "",
-                                        user.district,
-                                        quantity,
-                                        user.points
-                                    )
-                                    result.onSuccess { updatedGroup ->
-                                        // Otorgar +5 puntos por unirse al grupo (siempre es primera vez cuando se crea)
-                                        authRepository.addPoints(user.id, 5, "Unirse al grupo")
-                                        
-                                        // Verificar si el grupo alcanzó la meta (pasó a PICKUP)
-                                        if (updatedGroup.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
-                                            // Otorgar +20 puntos a todos los participantes por completar el grupo
-                                            updatedGroup.participants.forEach { participant ->
-                                                if (participant.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED) {
-                                                    authRepository.addPoints(participant.userId, 20, "Completar grupo")
-                                                }
-                                            }
-                                        }
-                                        
-                                        navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
-                                    }
-                                    result.onFailure { error ->
-                                        Toast.makeText(context, error.message ?: "Error al reservar", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                onCreateGroup = { quantity ->
-                    // Validar que solo CLIENTES pueden crear grupos
-                    if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.CLIENTE) {
-                        Toast.makeText(context, "Solo los clientes pueden crear grupos", Toast.LENGTH_SHORT).show()
-                        return@ProductDetailScreen
-                    }
-                    
-                    product?.let { prod ->
+                    activeOffer?.let { offer ->
                         currentUser?.let { user ->
                             scope.launch {
-                                groupRepository.createGroup(
-                                    productId = prod.id,
-                                    productName = prod.name,
-                                    productImage = prod.imageUrl ?: "",
-                                    creatorId = user.id,
-                                    creatorAlias = user.alias,
-                                    targetSize = prod.minGroupSize,
-                                    storeId = prod.storeId,
-                                    storeName = prod.storeName,
-                                    normalPrice = prod.normalPrice,
-                                    groupPrice = prod.groupPrice,
-                                    initialReservedUnits = 0 // No crear participante automático
-                                ).fold(
-                                    onSuccess = { group ->
-                                        // Después de crear el grupo, unirse a él
-                                        groupRepository.joinGroup(
-                                            group.id,
-                                            user.id,
-                                            user.alias,
-                                            user.avatar ?: "",
-                                            user.district,
-                                            quantity,
-                                            user.points
-                                        ).fold(
-                                            onSuccess = { updatedGroup ->
-                                                // Otorgar +5 puntos por unirse al grupo (siempre es primera vez cuando se crea)
-                                                authRepository.addPoints(user.id, 5, "Unirse al grupo")
-                                                navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
-                                            },
-                                            onFailure = { error ->
-                                                Toast.makeText(context, "Error al reservar: ${error.message}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
-                                    },
-                                    onFailure = { error ->
-                                        Toast.makeText(context, "Error: ${error.message}", Toast.LENGTH_SHORT).show()
+                                // Calcular nivel de gamificación del usuario
+                                val userLevel = user.gamificationLevel ?: when {
+                                    user.points >= 300 -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO
+                                    user.points >= 100 -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA
+                                    else -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE
+                                }
+                                
+                                // Validar límite por nivel antes de intentar reservar
+                                val maxUnits = user.maxReservationUnits()
+                                if (quantity > maxUnits) {
+                                    val levelName = when (userLevel) {
+                                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE -> "BRONCE"
+                                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA -> "PLATA"
+                                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO -> "ORO"
                                     }
+                                    Toast.makeText(
+                                        context,
+                                        "Tu nivel $levelName permite máximo $maxUnits unidades por reserva",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    return@launch
+                                }
+                                
+                                // Validar que la oferta esté activa antes de intentar reservar
+                                if (offer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE) {
+                                    val errorMsg = when (offer.status) {
+                                        com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> "La oferta ya alcanzó la meta y está en retiro"
+                                        com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> "La oferta ya fue completada"
+                                        com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> "La oferta ha expirado"
+                                        else -> "La oferta no está activa"
+                                    }
+                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                    return@launch
+                                }
+                                
+                                if (offer.isExpired) {
+                                    Toast.makeText(context, "La oferta ha expirado", Toast.LENGTH_SHORT).show()
+                                    return@launch
+                                }
+                                
+                                // Validar unidades disponibles
+                                val availableUnits = (offer.targetUnits - offer.reservedUnits).coerceAtLeast(0)
+                                if (quantity > availableUnits) {
+                                    val errorMsg = if (availableUnits == 0) {
+                                        "La oferta ya alcanzó la meta"
+                                    } else {
+                                        "Solo quedan $availableUnits unidades disponibles"
+                                    }
+                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                    return@launch
+                                }
+                                
+                                // Crear la reserva
+                                val result = appViewModel.createReservation(
+                                    offerId = offer.id,
+                                    userId = user.id,
+                                    units = quantity,
+                                    userLevel = userLevel,
+                                    currentRole = authViewModel.currentRole
                                 )
+                                
+                                // Verificar el resultado y mostrar mensajes apropiados
+                                result.onSuccess { reservation ->
+                                    // CORRECCIÓN: Refrescar las ofertas del usuario después de crear la reserva
+                                    // para que aparezca inmediatamente en "Mis Grupos"
+                                    appViewModel.fetchOffers(user.id)
+                                    
+                                    // Los puntos se otorgan automáticamente por triggers de BD (JOIN_GROUP +5)
+                                    // No es necesario agregar puntos manualmente aquí
+                                    Toast.makeText(context, "Reserva creada exitosamente", Toast.LENGTH_SHORT).show()
+                                    navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
+                                }.onFailure { error ->
+                                    // Mostrar el mensaje de error al usuario
+                                    val errorMessage = error.message ?: "Error al crear la reserva"
+                                    Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                                    android.util.Log.e("ConsumerNavGraph", "Error al crear reserva: $errorMessage", error)
+                                }
                             }
-                        }
-                    }
+                        } ?: Toast.makeText(context, "Debes iniciar sesión para hacer reservas", Toast.LENGTH_SHORT).show()
+                    } ?: Toast.makeText(context, "No hay oferta activa para este producto", Toast.LENGTH_SHORT).show()
+                },
+                onCreateGroup = { quantity ->
+                    // @Deprecated - Los clientes ya no crean grupos
+                    // Las ofertas son creadas por los bodegueros
+                    Toast.makeText(context, "Las ofertas son creadas por los bodegueros. Busca una oferta activa.", Toast.LENGTH_LONG).show()
                 },
                 onShareGroup = {
                     currentUser?.let { user ->
@@ -406,6 +365,8 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 }
             }
             val quantity = backStackEntry.arguments?.getInt(Screen.ReservationSuccess.QUANTITY_ARG) ?: 1
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val scope = rememberCoroutineScope()
             ReservationSuccessScreen(
                 quantity = quantity,
                 onGoHome = {
@@ -414,6 +375,13 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     }
                 },
                 onViewReservations = {
+                    // CORRECCIÓN: Refrescar ofertas del usuario antes de navegar a "Mis Grupos"
+                    // para asegurar que la reserva recién creada aparezca
+                    currentUser?.let { user ->
+                        scope.launch {
+                            appViewModel.fetchOffers(user.id)
+                        }
+                    }
                     navController.navigate(Screen.MyGroups.route) {
                         popUpTo(Screen.Home.route) { inclusive = false }
                     }
@@ -431,27 +399,187 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             }
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val userId = currentUser?.id ?: ""
+            val userDistrict = currentUser?.district?.takeIf { it.isNotBlank() } ?: "Trujillo"
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
             LaunchedEffect(userId) {
                 if (userId.isNotBlank()) {
-                    appViewModel.fetchGroups(userId)
+                    appViewModel.fetchOffers(userId)
                 }
             }
-            val myGroups = appUiState.groups
-            val activeGroups = myGroups.filter { it.status == GroupStatus.ACTIVE && !it.isExpired }
-            val pickupGroups = myGroups.filter { it.status == GroupStatus.PICKUP }
-            val completedGroups = myGroups.filter { it.status == GroupStatus.COMPLETED || it.status == GroupStatus.VALIDATED }
-            val expiredGroups = myGroups.filter {
-                (it.status == GroupStatus.EXPIRED || it.isExpired) &&
-                    it.status != GroupStatus.COMPLETED &&
-                    it.status != GroupStatus.VALIDATED &&
-                    it.status != GroupStatus.PICKUP
+            
+            // INTEGRACIÓN REALTIME: Iniciar suscripción en tiempo real para MyGroupsScreen (cliente)
+            // Escucha cambios en ofertas del distrito y reservas del usuario
+            // Cuando una oferta cambia de estado (ACTIVE → PICKUP → COMPLETED → EXPIRED),
+            // la card se mueve automáticamente entre las secciones (Activos → En Retiro → Completados → Expirados)
+            LaunchedEffect(userDistrict, userId) {
+                if (userDistrict.isNotBlank() && userId.isNotBlank()) {
+                    appViewModel.startRealtimeUpdates(
+                        com.nexusbiz.nexusbiz.ui.viewmodel.RealtimeContext(
+                            district = userDistrict,
+                            userId = userId
+                        )
+                    )
+                    
+                    // También iniciar suscripción de usuario para puntos/nivel
+                    authRepository.startRealtimeSubscription(userId)
+                }
             }
+            
+            // Detener suscripciones cuando se sale de la pantalla
+            androidx.compose.runtime.DisposableEffect(userDistrict, userId) {
+                onDispose {
+                    appViewModel.stopRealtimeUpdates()
+                    authRepository.stopRealtimeSubscription()
+                }
+            }
+            // CORRECCIÓN: Refrescar ofertas del usuario cada vez que se entra a la pantalla
+            // para asegurar que se muestren todas las ofertas donde tiene reservas
+            LaunchedEffect(Unit) {
+                if (userId.isNotBlank()) {
+                    Log.d("ConsumerNavGraph", "Refrescando ofertas del usuario en MyGroupsScreen: $userId")
+                    appViewModel.fetchOffers(userId)
+                }
+            }
+            
+            // También refrescar cuando cambie el userId
+            LaunchedEffect(userId) {
+                if (userId.isNotBlank()) {
+                    Log.d("ConsumerNavGraph", "Refrescando ofertas del usuario (userId cambió): $userId")
+                    appViewModel.fetchOffers(userId)
+                }
+            }
+            
+            // CORRECCIÓN: Filtrar ofertas según el estado de la RESERVA del usuario, no solo el estado de la oferta
+            // Obtener las reservas del usuario desde el StateFlow del repositorio para que se actualicen automáticamente
+            val allReservations by offerRepository.reservations.collectAsState(initial = emptyList())
+            val userReservations = remember(allReservations, userId) {
+                allReservations.filter { it.userId == userId }
+            }
+            
+            // También refrescar las reservas cuando cambie el userId
+            LaunchedEffect(userId) {
+                if (userId.isNotBlank()) {
+                    offerRepository.fetchReservationsByUser(userId)
+                    Log.d("ConsumerNavGraph", "Reservas del usuario obtenidas: ${userReservations.size}")
+                    userReservations.forEach { reservation ->
+                        Log.d("ConsumerNavGraph", "Reserva: id=${reservation.id}, offer_id=${reservation.offerId}, status=${reservation.status}")
+                    }
+                }
+            }
+            
+            // Usar las ofertas del estado actual
+            val myOffers = appUiState.offers
+            Log.d("ConsumerNavGraph", "Total ofertas en appUiState: ${myOffers.size}")
+            myOffers.forEach { offer ->
+                val reservation = userReservations.firstOrNull { it.offerId == offer.id }
+                Log.d("ConsumerNavGraph", "Oferta: id=${offer.id}, producto=${offer.productName}, offer_status=${offer.status}, reservation_status=${reservation?.status}")
+            }
+            
+            // CORRECCIÓN: Filtrar según el estado de la RESERVA del usuario y el estado de la oferta
+            // Lógica de negocio:
+            // - Activos: Reserva RESERVED y oferta ACTIVE (aún no alcanzó la meta)
+            // - En Retiro: Oferta PICKUP (alcanzó la meta) y reserva RESERVED (puede retirar con QR)
+            // - Completados: Reserva VALIDATED (ya retiró) y oferta COMPLETED
+            // - Expirados: Reserva EXPIRED o oferta EXPIRED
+            
+            // Activos: Reserva RESERVED y oferta ACTIVE (aún no alcanzó la meta para retiro)
+            val activeOffers = myOffers.filter { offer ->
+                val reservation = userReservations.firstOrNull { it.offerId == offer.id }
+                reservation?.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.RESERVED &&
+                offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE &&
+                !offer.isExpired
+            }
+            
+            // En Retiro: Oferta PICKUP (alcanzó la meta) y reserva RESERVED (puede retirar con QR)
+            // También incluir reservas VALIDATED que aún están en PICKUP (en proceso de retiro)
+            val pickupOffers = myOffers.filter { offer ->
+                val reservation = userReservations.firstOrNull { it.offerId == offer.id }
+                val matches = offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP &&
+                reservation != null &&
+                (reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.RESERVED ||
+                 reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED)
+                if (offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP) {
+                    Log.d("ConsumerNavGraph", "Oferta PICKUP encontrada: ${offer.id}, reservation=${reservation?.id}, reservation_status=${reservation?.status}, matches=$matches")
+                }
+                matches
+            }
+            
+            // Completados: Reserva VALIDATED (ya retiró) y oferta COMPLETED
+            val completedOffers = myOffers.filter { offer ->
+                val reservation = userReservations.firstOrNull { it.offerId == offer.id }
+                reservation?.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED &&
+                offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED
+            }
+            
+            // Expirados: Reserva EXPIRED o oferta EXPIRED
+            val expiredOffers = myOffers.filter { offer ->
+                val reservation = userReservations.firstOrNull { it.offerId == offer.id }
+                reservation?.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.EXPIRED ||
+                offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED ||
+                (offer.isExpired && reservation?.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED && offer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED)
+            }
+            
+            Log.d("ConsumerNavGraph", "Ofertas filtradas por estado de reserva - Activos: ${activeOffers.size}, En Retiro: ${pickupOffers.size}, Completados: ${completedOffers.size}, Expirados: ${expiredOffers.size}")
+            
+            // CORRECCIÓN: Convertir ofertas a grupos para compatibilidad con MyGroupsScreen
+            // MyGroupsScreen solo acepta List<Group>, así que convertimos las ofertas
+            fun offerToGroup(offer: com.nexusbiz.nexusbiz.data.model.Offer): com.nexusbiz.nexusbiz.data.model.Group {
+                val expiresAtLong = offer.expiresAt?.let {
+                    try {
+                        java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                    } catch (e: Exception) {
+                        System.currentTimeMillis() + (offer.durationHours * 60 * 60 * 1000L)
+                    }
+                } ?: (System.currentTimeMillis() + (offer.durationHours * 60 * 60 * 1000L))
+                
+                val createdAtLong = offer.createdAt?.let {
+                    try {
+                        java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
+                    } catch (e: Exception) {
+                        System.currentTimeMillis()
+                    }
+                } ?: System.currentTimeMillis()
+                
+                val groupStatus = when (offer.status) {
+                    com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE -> com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE
+                    com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP
+                    com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> com.nexusbiz.nexusbiz.data.model.GroupStatus.COMPLETED
+                    com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> com.nexusbiz.nexusbiz.data.model.GroupStatus.EXPIRED
+                }
+                
+                return com.nexusbiz.nexusbiz.data.model.Group(
+                    id = offer.id,
+                    productId = offer.id, // Usar el mismo ID temporalmente
+                    productName = offer.productName,
+                    productImage = offer.imageUrl ?: "",
+                    creatorId = offer.storeId,
+                    creatorAlias = offer.storeName,
+                    participants = emptyList(), // Se cargarán desde reservas si es necesario
+                    currentSize = offer.reservedUnits,
+                    targetSize = offer.targetUnits,
+                    status = groupStatus,
+                    expiresAt = expiresAtLong,
+                    createdAt = createdAtLong,
+                    storeId = offer.storeId,
+                    storeName = offer.storeName,
+                    qrCode = offer.id, // Usar el ID como QR temporalmente
+                    validatedAt = null,
+                    normalPrice = offer.normalPrice,
+                    groupPrice = offer.groupPrice
+                )
+            }
+            
+            val activeGroups = activeOffers.map { offerToGroup(it) }
+            val pickupGroups = pickupOffers.map { offerToGroup(it) }
+            val completedGroups = completedOffers.map { offerToGroup(it) }
+            val expiredGroups = expiredOffers.map { offerToGroup(it) }
+            
+            Log.d("ConsumerNavGraph", "Grupos convertidos - Activos: ${activeGroups.size}, En Retiro: ${pickupGroups.size}, Completados: ${completedGroups.size}, Expirados: ${expiredGroups.size}")
             MyGroupsScreen(
-                activeGroups = activeGroups,
-                pickupGroups = pickupGroups,
-                completedGroups = completedGroups,
-                expiredGroups = expiredGroups,
+                activeGroups = activeGroups, // @Deprecated - usar offers
+                pickupGroups = pickupGroups, // @Deprecated
+                completedGroups = completedGroups, // @Deprecated
+                expiredGroups = expiredGroups, // @Deprecated
                 onActiveGroupClick = { groupId ->
                     navController.navigate(Screen.GroupDetail.createRoute(groupId))
                 },
@@ -483,12 +611,21 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val groupId = backStackEntry.arguments?.getString(Screen.GroupDetail.GROUP_ID_ARG) ?: ""
             val currentUserState by authRepository.currentUser.collectAsState(initial = null)
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
-            LaunchedEffect(groupId) { appViewModel.fetchGroupById(groupId) }
-            val group = appUiState.groups.firstOrNull { it.id == groupId }
+            var reservations by remember { mutableStateOf<List<com.nexusbiz.nexusbiz.data.model.Reservation>>(emptyList()) }
+            
+            LaunchedEffect(groupId) { 
+                appViewModel.fetchOfferById(groupId)
+                // Cargar reservas si hay oferta
+                offerRepository.getOfferById(groupId)?.let { offer ->
+                    reservations = offerRepository.getReservationsByOffer(offer.id)
+                }
+            }
+            val offer = appUiState.offers.firstOrNull { it.id == groupId }
             when {
-                group?.status == GroupStatus.COMPLETED || group?.status == GroupStatus.VALIDATED -> {
+                offer?.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> {
                     GroupCompletedConsumerScreen(
-                        group = group,
+                        offer = offer,
+                        reservations = reservations,
                         currentUser = currentUserState,
                         onBack = { navController.popBackStack() },
                         onViewOffers = { navController.navigate(Screen.Home.route) },
@@ -498,9 +635,9 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                         }
                     )
                 }
-                group?.status == GroupStatus.EXPIRED -> {
+                offer?.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> {
                     GroupExpiredConsumerScreen(
-                        group = group,
+                        offer = offer,
                         onBack = { navController.popBackStack() },
                         onQuickBuy = { productId ->
                             navController.navigate(Screen.QuickBuy.createRoute(productId))
@@ -508,9 +645,9 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                         onExplore = { navController.navigate(Screen.Home.route) }
                     )
                 }
-                group?.isExpired == true && group.status != GroupStatus.COMPLETED && group.status != GroupStatus.VALIDATED && group.status != GroupStatus.PICKUP -> {
+                (offer?.isExpired == true && offer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED) -> {
                     GroupExpiredConsumerScreen(
-                        group = group,
+                        offer = offer,
                         onBack = { navController.popBackStack() },
                         onQuickBuy = { productId ->
                             navController.navigate(Screen.QuickBuy.createRoute(productId))
@@ -518,20 +655,116 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                         onExplore = { navController.navigate(Screen.Home.route) }
                     )
                 }
-                group?.status == GroupStatus.PICKUP -> {
+                offer?.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> {
+                    val userReservation = reservations.firstOrNull { it.userId == currentUserState?.id }
                     GroupReadyForPickupScreen(
-                        group = group,
+                        offer = offer,
+                        reservations = reservations,
                         currentUser = currentUserState,
                         onBack = { navController.popBackStack() },
-                        onViewQR = { navController.navigate(Screen.PickupQR.createRoute(group.id)) }
+                        onViewQR = { 
+                            val targetId = offer?.id ?: ""
+                            navController.navigate(Screen.PickupQR.createRoute(targetId)) 
+                        }
                     )
                 }
                 else -> {
+                    val scope = rememberCoroutineScope()
+                    val context = LocalContext.current
                     GroupReservedScreen(
-                        group = group,
+                        offer = offer,
+                        reservations = reservations,
                         currentUser = currentUserState,
                         onBack = { navController.popBackStack() },
-                        onShare = { }
+                        onShare = { },
+                        onCreateReservation = { quantity ->
+                            // Validar que solo CLIENTES pueden hacer reservas
+                            if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.CLIENTE) {
+                                Toast.makeText(context, "Solo los clientes pueden hacer reservas", Toast.LENGTH_SHORT).show()
+                                return@GroupReservedScreen
+                            }
+                            
+                            offer?.let { activeOffer ->
+                                currentUserState?.let { user ->
+                                    scope.launch {
+                                        // Calcular nivel de gamificación del usuario
+                                        val userLevel = user.gamificationLevel ?: when {
+                                            user.points >= 300 -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO
+                                            user.points >= 100 -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA
+                                            else -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE
+                                        }
+                                        
+                                        // Validar límite por nivel antes de intentar reservar
+                                        val maxUnits = user.maxReservationUnits()
+                                        if (quantity > maxUnits) {
+                                            val levelName = when (userLevel) {
+                                                com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE -> "BRONCE"
+                                                com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA -> "PLATA"
+                                                com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO -> "ORO"
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                "Tu nivel $levelName permite máximo $maxUnits unidades por reserva",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            return@launch
+                                        }
+                                        
+                                        // Validar que la oferta esté activa antes de intentar reservar
+                                        if (activeOffer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE) {
+                                            val errorMsg = when (activeOffer.status) {
+                                                com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP -> "La oferta ya alcanzó la meta y está en retiro"
+                                                com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> "La oferta ya fue completada"
+                                                com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> "La oferta ha expirado"
+                                                else -> "La oferta no está activa"
+                                            }
+                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                            return@launch
+                                        }
+                                        
+                                        if (activeOffer.isExpired) {
+                                            Toast.makeText(context, "La oferta ha expirado", Toast.LENGTH_SHORT).show()
+                                            return@launch
+                                        }
+                                        
+                                        // Validar unidades disponibles
+                                        val availableUnits = (activeOffer.targetUnits - activeOffer.reservedUnits).coerceAtLeast(0)
+                                        if (quantity > availableUnits) {
+                                            val errorMsg = if (availableUnits == 0) {
+                                                "La oferta ya alcanzó la meta"
+                                            } else {
+                                                "Solo quedan $availableUnits unidades disponibles"
+                                            }
+                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                            return@launch
+                                        }
+                                        
+                                        // Crear la reserva
+                                        val result = appViewModel.createReservation(
+                                            offerId = activeOffer.id,
+                                            userId = user.id,
+                                            units = quantity,
+                                            userLevel = userLevel,
+                                            currentRole = authViewModel.currentRole
+                                        )
+                                        
+                                        // Verificar el resultado y mostrar mensajes apropiados
+                                        result.onSuccess { reservation ->
+                                            // CORRECCIÓN: Refrescar las ofertas del usuario después de crear la reserva
+                                            // para que aparezca inmediatamente en "Mis Grupos"
+                                            appViewModel.fetchOffers(user.id)
+                                            
+                                            Toast.makeText(context, "Reserva creada exitosamente", Toast.LENGTH_SHORT).show()
+                                            navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
+                                        }.onFailure { error ->
+                                            val errorMessage = error.message ?: "Error al crear la reserva"
+                                            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                                            android.util.Log.e("ConsumerNavGraph", "Error al crear reserva: $errorMessage", error)
+                                        }
+                                    }
+                                } ?: Toast.makeText(context, "Debes iniciar sesión para hacer reservas", Toast.LENGTH_SHORT).show()
+                            } ?: Toast.makeText(context, "No hay oferta activa para este producto", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
             }
@@ -552,12 +785,25 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val currentUserState by authRepository.currentUser.collectAsState(initial = null)
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
             LaunchedEffect(groupId, currentUserState?.id) {
-                currentUserState?.let { appViewModel.fetchGroups(it.id) }
-                appViewModel.fetchGroupById(groupId)
+                currentUserState?.let { 
+                    appViewModel.fetchOffers(it.id) 
+                }
+                appViewModel.fetchOfferById(groupId)
             }
-            val group = appUiState.groups.firstOrNull { it.id == groupId }
+            val offer = appUiState.offers.firstOrNull { it.id == groupId }
+            var reservations by remember { mutableStateOf<List<com.nexusbiz.nexusbiz.data.model.Reservation>>(emptyList()) }
+            
+            LaunchedEffect(offer?.id, currentUserState?.id) {
+                offer?.let { 
+                    reservations = offerRepository.getReservationsByOffer(it.id)
+                }
+            }
+            
+            val userReservation = reservations.firstOrNull { it.userId == currentUserState?.id }
+            
             PickupQRScreen(
-                group = group,
+                offer = offer,
+                reservation = userReservation,
                 currentUser = currentUserState,
                 onBack = { navController.popBackStack() },
                 onShare = { }

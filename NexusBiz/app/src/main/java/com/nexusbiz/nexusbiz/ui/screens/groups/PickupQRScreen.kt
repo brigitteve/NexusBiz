@@ -46,6 +46,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.Reservation
 import com.nexusbiz.nexusbiz.data.model.User
 import com.nexusbiz.nexusbiz.ui.components.QRCodeDisplay
 import java.text.NumberFormat
@@ -55,15 +57,20 @@ import kotlin.math.max
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PickupQRScreen(
-    group: Group?,
+    group: Group? = null, // @Deprecated - mantener temporalmente
+    offer: Offer? = null,
+    reservation: Reservation? = null,
     currentUser: User?,
     onBack: () -> Unit,
     onShare: () -> Unit
 ) {
     val context = LocalContext.current
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
+    val activeOffer = offer
+    val activeGroup = group
+    val userReservation = reservation
 
-    if (group == null) {
+    if (activeOffer == null && activeGroup == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -74,9 +81,10 @@ fun PickupQRScreen(
     }
 
     // IMPORTANTE: QR solo disponible si estado es PICKUP
-    // Según el esquema SQL, el QR se genera automáticamente cuando current_size >= target_size
-    // y el estado cambia a PICKUP
-    if (group.status != com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+    val isPickup = activeOffer?.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.PICKUP ||
+                   activeGroup?.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP
+    
+    if (!isPickup) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -86,12 +94,20 @@ fun PickupQRScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = when (group.status) {
-                        com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> "El QR aún no está disponible.\nLa meta no se ha completado."
-                        com.nexusbiz.nexusbiz.data.model.GroupStatus.VALIDATED -> "El grupo ya fue finalizado.\nTodos los participantes retiraron."
-                        com.nexusbiz.nexusbiz.data.model.GroupStatus.EXPIRED -> "El grupo expiró sin completar la meta."
-                        com.nexusbiz.nexusbiz.data.model.GroupStatus.COMPLETED -> "El grupo ya fue completado."
-                        else -> "El QR no está disponible para este estado."
+                    text = when {
+                        activeOffer != null -> when (activeOffer.status) {
+                            com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE -> "El QR aún no está disponible.\nLa meta no se ha completado."
+                            com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED -> "La oferta ya fue completada."
+                            com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED -> "La oferta expiró sin completar la meta."
+                            else -> "El QR no está disponible para este estado."
+                        }
+                        else -> when (activeGroup?.status) {
+                            com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> "El QR aún no está disponible.\nLa meta no se ha completado."
+                            com.nexusbiz.nexusbiz.data.model.GroupStatus.VALIDATED -> "El grupo ya fue finalizado.\nTodos los participantes retiraron."
+                            com.nexusbiz.nexusbiz.data.model.GroupStatus.EXPIRED -> "El grupo expiró sin completar la meta."
+                            com.nexusbiz.nexusbiz.data.model.GroupStatus.COMPLETED -> "El grupo ya fue completado."
+                            else -> "El QR no está disponible para este estado."
+                        }
                     },
                     textAlign = TextAlign.Center,
                     fontSize = 16.sp,
@@ -105,43 +121,39 @@ fun PickupQRScreen(
         return
     }
 
-    // Validar que el QR existe (debería existir si está en PICKUP)
-    if (group.qrCode.isBlank()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("QR no generado. Contacta al soporte.", textAlign = TextAlign.Center)
-        }
-        return
-    }
-
-    val userReservationQuantity = group.activeParticipants
-        .firstOrNull { it.userId == currentUser?.id }
+    // Obtener datos de la reserva del usuario
+    val userReservationQuantity = userReservation?.units ?: activeGroup?.activeParticipants
+        ?.firstOrNull { it.userId == currentUser?.id }
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
     
     // Calcular precios y totales
-    val groupPrice = group.groupPrice.takeIf { it > 0 } ?: group.normalPrice
+    val groupPrice = activeOffer?.groupPrice ?: (activeGroup?.groupPrice?.takeIf { it > 0 } ?: activeGroup?.normalPrice ?: 0.0)
     val totalReservationPrice = groupPrice * userReservationQuantity
     
-    // Obtener estado del participante
-    val userParticipant = group.activeParticipants.firstOrNull { it.userId == currentUser?.id }
-    val reservationStatus = if (userParticipant?.isValidated == true) {
-        "Completado"
-    } else {
-        "Pendiente en retiro"
+    // Obtener estado de la reserva
+    val reservationStatus = when {
+        userReservation != null -> if (userReservation.isValidated) "Completado" else "Pendiente en retiro"
+        else -> {
+            val userParticipant = activeGroup?.activeParticipants?.firstOrNull { it.userId == currentUser?.id }
+            if (userParticipant?.isValidated == true) "Completado" else "Pendiente en retiro"
+        }
     }
     
-    // Dirección de la bodega (usar distrito del usuario como fallback)
-    val storeAddress = if (currentUser?.district?.isNotBlank() == true) {
-        "${group.storeName}, ${currentUser.district}"
+    // Dirección de la bodega
+    val storeName = activeOffer?.storeName ?: activeGroup?.storeName ?: "Bodega"
+    val pickupAddress = activeOffer?.pickupAddress ?: ""
+    val storeAddress = if (pickupAddress.isNotBlank()) {
+        pickupAddress
+    } else if (currentUser?.district?.isNotBlank() == true) {
+        "$storeName, ${currentUser.district}"
     } else {
-        group.storeName.ifBlank { "Bodega" }
+        storeName
     }
     
-    val reservationCode = group.qrCode
+    // Generar código QR basado en la reserva
+    val reservationCode = userReservation?.id ?: activeGroup?.qrCode ?: ""
 
     val handleNavigate = {
         val query = Uri.encode(storeAddress)
@@ -149,10 +161,11 @@ fun PickupQRScreen(
         context.startActivity(intent)
     }
 
+    val productName = activeOffer?.productName ?: activeGroup?.productName ?: "Producto"
     val handleShare = {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "Mi código QR de retiro: $reservationCode\nProducto: ${group.productName}\nBodega: ${group.storeName}")
+            putExtra(Intent.EXTRA_TEXT, "Mi código QR de retiro: $reservationCode\nProducto: $productName\nBodega: $storeName")
         }
         context.startActivity(Intent.createChooser(shareIntent, "Compartir QR"))
         onShare()
@@ -221,7 +234,7 @@ fun PickupQRScreen(
                     ) {
                         // QR Grande
                         QRCodeDisplay(
-                            data = group.qrCode.ifEmpty { group.id },
+                            data = reservationCode.ifEmpty { (userReservation?.id ?: activeGroup?.id ?: "") },
                             modifier = Modifier.size(280.dp),
                             size = 280
                         )
@@ -231,7 +244,7 @@ fun PickupQRScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = group.productName,
+                                text = productName,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF1A1A1A),
@@ -243,7 +256,7 @@ fun PickupQRScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = group.storeName.ifBlank { "Bodega" },
+                                    text = storeName.ifBlank { "Bodega" },
                                     fontSize = 16.sp,
                                     color = Color(0xFF606060)
                                 )

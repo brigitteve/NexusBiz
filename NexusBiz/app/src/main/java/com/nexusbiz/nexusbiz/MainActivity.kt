@@ -6,20 +6,24 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
+import android.util.Log
+import androidx.lifecycle.lifecycleScope
 import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
-import com.nexusbiz.nexusbiz.data.repository.GroupRepository
+import com.nexusbiz.nexusbiz.data.repository.OfferRepository
 import com.nexusbiz.nexusbiz.data.repository.ProductRepository
 import com.nexusbiz.nexusbiz.data.repository.StoreRepository
 import com.nexusbiz.nexusbiz.navigation.RootNavGraph
+import com.nexusbiz.nexusbiz.service.RealtimeService
 import com.nexusbiz.nexusbiz.ui.theme.NexusBizTheme
 import com.nexusbiz.nexusbiz.ui.viewmodel.AppViewModel
 import com.nexusbiz.nexusbiz.ui.viewmodel.AuthViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var authRepository: AuthRepository
     private lateinit var productRepository: ProductRepository
-    private lateinit var groupRepository: GroupRepository
+    private lateinit var offerRepository: OfferRepository
     private lateinit var storeRepository: StoreRepository
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,15 +32,26 @@ class MainActivity : ComponentActivity() {
         // Inicializar Supabase
         // TODO: Reemplazar con tus credenciales reales de Supabase
         SupabaseManager.init(
-            supabaseUrl = "https://loqibytqlewuygzzhsag.supabase.co", // Ejemplo: "https://xxxxx.supabase.co"
-            supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvcWlieXRxbGV3dXlnenpoc2FnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMDE0OTMsImV4cCI6MjA3OTY3NzQ5M30.yjmbnzfO79liCyUQ5ZiMco0E-0tUKmwRkg6FhleeTbM" // Tu anon/public key de Supabase
+            supabaseUrl = "https://hscancddnoqnskjfbjti.supabase.co", // Ejemplo: "https://xxxxx.supabase.co"
+            supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzY2FuY2Rkbm9xbnNramZianRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzNDI3NTIsImV4cCI6MjA3OTkxODc1Mn0.6RQtl-lqCc_haBlB6Nmq2BF19-oBqVPWOT9SDBMXSC4" // Tu anon/public key de Supabase
         )
         
         // Inicializar repositorios
         authRepository = AuthRepository()
         productRepository = ProductRepository()
-        groupRepository = GroupRepository()
+        offerRepository = OfferRepository()
         storeRepository = StoreRepository()
+        
+        // Inicializar RealtimeService - conexión base durante toda la sesión
+        // Esta conexión se mantiene activa y permite que las pantallas agreguen/quiten filtros dinámicamente
+        lifecycleScope.launch {
+            try {
+                RealtimeService.startBaseSubscriptions()
+                Log.d("MainActivity", "RealtimeService iniciado correctamente")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error al iniciar RealtimeService: ${e.message}", e)
+            }
+        }
         
         enableEdgeToEdge()
         setContent {
@@ -56,7 +71,7 @@ class MainActivity : ComponentActivity() {
                     factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            return AppViewModel(productRepository, groupRepository) as T
+                            return AppViewModel(productRepository, offerRepository) as T
                         }
                     }
                 )
@@ -67,7 +82,7 @@ class MainActivity : ComponentActivity() {
                     appViewModel = appViewModel,
                     authRepository = authRepository,
                     productRepository = productRepository,
-                    groupRepository = groupRepository,
+                    offerRepository = offerRepository,
                     storeRepository = storeRepository
                 )
             }

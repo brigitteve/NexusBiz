@@ -5,6 +5,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.serializer.KotlinXSerializer
 import io.github.jan.supabase.storage.Storage
 import kotlinx.serialization.json.Json
@@ -13,10 +14,17 @@ object SupabaseManager {
     @Volatile
     private var _client: SupabaseClient? = null
     
+    @Volatile
+    private var _supabaseUrl: String? = null
+    
     val client: SupabaseClient
         get() = _client ?: throw IllegalStateException("Supabase no ha sido inicializado. Llama a SupabaseManager.init() primero.")
+    
+    val supabaseUrl: String
+        get() = _supabaseUrl ?: throw IllegalStateException("Supabase no ha sido inicializado. Llama a SupabaseManager.init() primero.")
 
     fun init(supabaseUrl: String, supabaseKey: String) {
+        _supabaseUrl = supabaseUrl
         try {
             _client = createSupabaseClient(
                 supabaseUrl = supabaseUrl,
@@ -32,6 +40,7 @@ object SupabaseManager {
                 install(Auth)
                 install(Postgrest)
                 install(Storage)
+                install(Realtime) // Plugin de Realtime para escuchar cambios en tiempo real
             }
         } catch (e: Exception) {
             Log.e("SupabaseManager", "Error al inicializar Supabase: ${e.message}", e)

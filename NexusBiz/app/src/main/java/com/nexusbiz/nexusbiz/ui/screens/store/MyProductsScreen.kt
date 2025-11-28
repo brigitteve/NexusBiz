@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
 import com.nexusbiz.nexusbiz.data.model.GroupStatus
+import com.nexusbiz.nexusbiz.data.model.Offer
+import com.nexusbiz.nexusbiz.data.model.OfferStatus
 import com.nexusbiz.nexusbiz.data.model.Participant
 import com.nexusbiz.nexusbiz.ui.components.StoreBottomNavBar
 import kotlin.math.floor
@@ -40,47 +42,52 @@ import kotlin.math.floor
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyProductsScreen(
-    groups: List<Group> = emptyList(),
-    onGroupClick: (String) -> Unit,
+    groups: List<Group> = emptyList(), // @Deprecated - mantener temporalmente
+    offers: List<Offer> = emptyList(),
+    onGroupClick: (String) -> Unit, // @Deprecated
+    onOfferClick: (String) -> Unit,
     onBack: () -> Unit,
     onNavigateToDashboard: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {}
 ) {
-            var selectedTab by rememberSaveable { mutableStateOf("active") }
+    var selectedTab by rememberSaveable { mutableStateOf("active") }
 
-            val groupsToUse = remember(groups) {
-                groups
-            }
+    // Categorizar ofertas
+    // CORRECCIÓN: Una oferta está activa si tiene status ACTIVE y no ha expirado
+    // No debemos filtrar por reservedUnits < targetUnits porque el trigger de BD
+    // cambiará el estado a PICKUP automáticamente cuando se alcance la meta
+    val activeOffersList = offers.filter { 
+        it.status == OfferStatus.ACTIVE && !it.isExpired
+    }
+    // CORRECCIÓN: Ofertas expiradas son las que tienen status EXPIRED o han expirado por tiempo
+    // y no están completadas
+    val expiredOffersList = offers.filter { 
+        (it.status == OfferStatus.EXPIRED || (it.isExpired && it.status != OfferStatus.COMPLETED)) &&
+        it.reservedUnits < it.targetUnits
+    }
+    // CORRECCIÓN: Ofertas completadas/finalizadas incluyen:
+    // - Status COMPLETED
+    // - Status PICKUP (ya alcanzó la meta y está en retiro)
+    val completedOffersList = offers.filter { 
+        it.status == OfferStatus.COMPLETED || it.status == OfferStatus.PICKUP
+    }
     
-    // Categorizar ofertas según la lógica del React
+    // También categorizar grupos (deprecated)
     val now = System.currentTimeMillis()
-    
-    // ACTIVOS: Están activos Y no han expirado Y no alcanzaron la meta
-            val activeOffers = groupsToUse.filter { group ->
-        val isNotExpired = group.expiresAt > now
-        val isNotComplete = group.reservedUnits < group.targetSize
-        val isActive = group.status == GroupStatus.ACTIVE
-        isActive && isNotExpired && isNotComplete
+    val activeGroupsList = groups.filter { 
+        it.status == GroupStatus.ACTIVE && it.expiresAt > now && it.reservedUnits < it.targetSize
     }
-    
-    // EXPIRADOS: Expiró el tiempo O ya no están activos PERO no alcanzaron la meta
-            val expiredOffers = groupsToUse.filter { group ->
-        val isExpired = group.expiresAt <= now || group.status != GroupStatus.ACTIVE
-        val isNotComplete = group.reservedUnits < group.targetSize
-        isExpired && isNotComplete
+    val expiredGroupsList = groups.filter { 
+        (it.expiresAt <= now || it.status != GroupStatus.ACTIVE) && it.reservedUnits < it.targetSize
     }
-    
-    // FINALIZADOS: Ya no están activos (isActive: false) Y alcanzaron la meta
-            val completedOffers = groupsToUse.filter { group ->
-        val isComplete = group.reservedUnits >= group.targetSize
-        val isInactive = group.status != GroupStatus.ACTIVE
-        isInactive && isComplete
+    val completedGroupsList = groups.filter { 
+        it.reservedUnits >= it.targetSize && it.status != GroupStatus.ACTIVE
     }
     
     val offersForTab = when (selectedTab) {
-        "active" -> activeOffers
-        "expired" -> expiredOffers
-        "completed" -> completedOffers
+        "active" -> activeOffersList + activeGroupsList
+        "expired" -> expiredOffersList + expiredGroupsList
+        "completed" -> completedOffersList + completedGroupsList
         else -> emptyList()
     }
     
@@ -157,7 +164,7 @@ fun MyProductsScreen(
                 ) {
                     TabButtonWithBadge(
                         text = "Activos",
-                        badgeCount = activeOffers.size,
+                        badgeCount = activeOffersList.size,
                         badgeColor = Color.White,
                         badgeBackground = Color(0xFF10B981),
                         isSelected = selectedTab == "active",
@@ -166,7 +173,7 @@ fun MyProductsScreen(
                     )
                     TabButtonWithBadge(
                         text = "Expirados",
-                        badgeCount = expiredOffers.size,
+                        badgeCount = expiredOffersList.size,
                         badgeColor = Color.White,
                         badgeBackground = Color(0xFF606060),
                         isSelected = selectedTab == "expired",
@@ -175,7 +182,7 @@ fun MyProductsScreen(
                     )
                     TabButtonWithBadge(
                         text = "Finalizados",
-                        badgeCount = completedOffers.size,
+                        badgeCount = completedOffersList.size,
                         badgeColor = Color(0xFF10B981),
                         badgeBackground = Color(0xFF10B981).copy(alpha = 0.2f),
                         isSelected = selectedTab == "completed",
@@ -217,22 +224,32 @@ fun MyProductsScreen(
                         }
                     }
                 } else {
-                    items(offersForTab, key = { it.id }) { offer ->
+                    // Mostrar ofertas primero
+                    items(offers.filter { it in offersForTab }, key = { it.id }) { offer ->
+                        OfferCardForOffer(
+                            offer = offer,
+                            accent = Color(0xFF10B981),
+                            warning = Color(0xFFFF914D),
+                            onClick = { onOfferClick(offer.id) }
+                        )
+                    }
+                    // Mostrar grupos (deprecated) después
+                    items(groups.filter { it in offersForTab }, key = { it.id }) { group ->
                         when (selectedTab) {
                             "active" -> OfferCard(
-                                group = offer,
+                                group = group,
                                 status = "Activo",
-                                onClick = { onGroupClick(offer.id) }
+                                onClick = { onGroupClick(group.id) }
                             )
                             "expired" -> OfferCard(
-                                group = offer,
+                                group = group,
                                 status = "Expirado",
-                                onClick = { onGroupClick(offer.id) }
+                                onClick = { onGroupClick(group.id) }
                             )
                             "completed" -> OfferCard(
-                                group = offer,
+                                group = group,
                                 status = "Finalizado",
-                                onClick = { onGroupClick(offer.id) }
+                                onClick = { onGroupClick(group.id) }
                             )
                             else -> {}
                         }

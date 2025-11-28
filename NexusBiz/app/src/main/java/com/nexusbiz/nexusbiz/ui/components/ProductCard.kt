@@ -28,6 +28,7 @@ import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.data.model.StorePlan
 import com.nexusbiz.nexusbiz.data.model.Group
+import com.nexusbiz.nexusbiz.data.model.Offer
 import java.text.NumberFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -37,7 +38,8 @@ fun ProductCard(
     product: Product,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    activeGroup: Group? = null // Grupo activo para mostrar datos reales
+    activeGroup: Group? = null, // @Deprecated - mantener temporalmente
+    activeOffer: Offer? = null // Oferta activa para mostrar datos reales
 ) {
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale("es", "PE"))
     val discountPercent = if (product.normalPrice > 0.0) {
@@ -46,23 +48,20 @@ fun ProductCard(
         0
     }
     
-    // Usar datos reales del grupo si existe, sino usar valores por defecto
-    val targetUnits = activeGroup?.targetSize ?: product.minGroupSize
-    val currentUnits = activeGroup?.currentSize ?: 0
-    val progressValue = if (targetUnits > 0) (currentUnits.toFloat() / targetUnits).coerceIn(0f, 1f) else 0f
-    val remainingUnits = (targetUnits - currentUnits).coerceAtLeast(0)
+    // Usar datos reales de la oferta si existe, sino del grupo (deprecated), sino valores por defecto
+    val targetUnits = activeOffer?.targetUnits ?: activeGroup?.targetSize ?: product.minGroupSize
+    val currentUnits = activeOffer?.reservedUnits ?: activeGroup?.currentSize ?: 0
+    val progressValue = activeOffer?.progress ?: (if (targetUnits > 0) (currentUnits.toFloat() / targetUnits).coerceIn(0f, 1f) else 0f)
+    val remainingUnits = activeOffer?.unitsNeeded ?: (targetUnits - currentUnits).coerceAtLeast(0)
     
-    // Calcular tiempo restante usando el tiempo real del grupo
-    val timeRemaining = activeGroup?.let { group ->
-        // Usar timeRemaining del grupo que ya calcula correctamente expiresAt - ahora
-        group.timeRemaining
-    } ?: 0L
+    // Calcular tiempo restante usando el tiempo real de la oferta o grupo
+    val timeRemaining = activeOffer?.timeRemaining ?: activeGroup?.timeRemaining ?: 0L
     
     val hoursRemaining = (timeRemaining / (1000 * 60 * 60)).toInt()
     val minutesRemaining = ((timeRemaining % (1000 * 60 * 60)) / (1000 * 60)).toInt()
-    val timeText = if (timeRemaining > 0 && activeGroup != null) {
+    val timeText = if (timeRemaining > 0 && (activeOffer != null || activeGroup != null)) {
         if (hoursRemaining > 0) "${hoursRemaining}h ${minutesRemaining}m" else "${minutesRemaining}m"
-    } else if (activeGroup != null) {
+    } else if (activeOffer != null || activeGroup != null) {
         "Expirado"
     } else {
         "Sin oferta activa"
