@@ -40,8 +40,18 @@ data class Store(
     val commercialName: String? = null,
     @SerialName("owner_alias")
     val ownerAlias: String? = null,
+    @SerialName("plan")
+    val plan: StorePlan = StorePlan.FREE,
     @SerialName("created_at")
     val createdAt: String? = null,
     @SerialName("updated_at")
     val updatedAt: String? = null
 ) : Parcelable
+
+@Serializable
+enum class StorePlan {
+    @SerialName("FREE")
+    FREE,
+    @SerialName("PRO")
+    PRO
+}

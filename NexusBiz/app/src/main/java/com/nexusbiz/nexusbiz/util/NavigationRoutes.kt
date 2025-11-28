@@ -51,7 +51,6 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object TermsAndPrivacy : Screen("terms_privacy")
     object StoreSubscriptionPro : Screen("store_subscription_pro")
-    object StoreBoostVisibility : Screen("store_boost_visibility")
     
     // Store Owner
     object StoreDashboard : Screen("store_dashboard")
@@ -67,7 +66,10 @@ sealed class Screen(val route: String) {
         fun createRoute(offerId: String) = "offer_published/$offerId"
     }
     object MyProducts : Screen("my_products")
-    object ScanQR : Screen("scan_qr")
+    object ScanQR : Screen("scan_qr/{groupId}") {
+        const val GROUP_ID_ARG = "groupId"
+        fun createRoute(groupId: String) = "scan_qr/$groupId"
+    }
     object BodegaRegistrationModal : Screen("bodega_registration_modal")
     object BodegaValidateRUC : Screen("bodega_validate_ruc")
     object BodegaCommercialData : Screen("bodega_commercial_data")

@@ -44,7 +44,6 @@ fun StoreProfileScreen(
     onChangePassword: () -> Unit = {},
     onTermsAndPrivacy: () -> Unit = {},
     onPlanPro: () -> Unit = {},
-    onBoostVisibility: () -> Unit = {},
     onLogout: () -> Unit,
     onNavigateToDashboard: () -> Unit = {},
     onNavigateToOffers: () -> Unit = {}
@@ -183,11 +182,14 @@ fun StoreProfileScreen(
                     }
                 }
 
-                // Card: Plan PRO
+                // Card: Plan actual
+                val currentPlan = storeData?.plan ?: com.nexusbiz.nexusbiz.data.model.StorePlan.FREE
+                val isPro = currentPlan == com.nexusbiz.nexusbiz.data.model.StorePlan.PRO
+                
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(onClick = onPlanPro),
+                        .clickable(onClick = { if (!isPro) onPlanPro() }),
                     shape = RoundedCornerShape(16.dp),
                     color = Color.Transparent
                 ) {
@@ -195,9 +197,15 @@ fun StoreProfileScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                Brush.horizontalGradient(
-                                    listOf(Color(0xFFFACC15), Color(0xFFFF914D))
-                                ),
+                                if (isPro) {
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFFACC15), Color(0xFFFF914D))
+                                    )
+                                } else {
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF6B7280), Color(0xFF9CA3AF))
+                                    )
+                                },
                                 RoundedCornerShape(16.dp)
                             )
                             .padding(20.dp)
@@ -219,7 +227,7 @@ fun StoreProfileScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        Icons.Default.Star,
+                                        if (isPro) Icons.Default.Star else Icons.Default.OfflineBolt,
                                         contentDescription = null,
                                         tint = Color.White,
                                         modifier = Modifier.size(24.dp)
@@ -231,95 +239,46 @@ fun StoreProfileScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Plan PRO",
+                                            text = if (isPro) "Plan PRO" else "Plan Gratuito",
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Color.White
                                         )
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color.White.copy(alpha = 0.2f)
-                                        ) {
-                                            Text(
-                                                text = "Nuevo",
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color.White
-                                            )
+                                        if (isPro) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = Color.White.copy(alpha = 0.2f)
+                                            ) {
+                                                Text(
+                                                    text = "Activo",
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     Text(
-                                        text = "Desbloquea más funciones",
-                                        fontSize = 14.sp,
+                                        text = if (isPro) {
+                                            "Ofertas ilimitadas · Cards doradas · Mayor visibilidad"
+                                        } else {
+                                            "Solo 2 ofertas activas · Actualiza a PRO para más"
+                                        },
+                                        fontSize = 13.sp,
                                         color = Color.White.copy(alpha = 0.9f)
                                     )
                                 }
                             }
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Card: Boost de visibilidad
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onBoostVisibility),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    shadowElevation = 1.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFFF914D).copy(alpha = 0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            if (!isPro) {
                                 Icon(
-                                    Icons.Default.OfflineBolt,
+                                    Icons.Default.ChevronRight,
                                     contentDescription = null,
-                                    tint = Color(0xFFFF914D),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    text = "Boost de visibilidad",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF1A1A1A)
-                                )
-                                Text(
-                                    text = "Destaca tus ofertas por 24h",
-                                    fontSize = 14.sp,
-                                    color = Color(0xFF606060)
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = Color(0xFF606060),
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 }
 

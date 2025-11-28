@@ -25,7 +25,6 @@ import com.nexusbiz.nexusbiz.ui.screens.store.MyProductsScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.OfferPublishedScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.PublishProductScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.ScanQRScreen
-import com.nexusbiz.nexusbiz.ui.screens.store.StoreBoostVisibilityScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.StoreDashboardScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.StoreGroupDetailScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.StoreProfileScreen
@@ -62,10 +61,18 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             val storeId = storeOwner?.id
             val ownerUserId = storeOwner?.ownerId
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
-            LaunchedEffect(ownerUserId) {
+            // Refrescar datos al entrar al dashboard y periódicamente para mantener sincronización
+            LaunchedEffect(ownerUserId, storeId) {
                 ownerUserId?.let { userId ->
                     appViewModel.fetchProducts("")
                     appViewModel.fetchGroups(userId)
+                }
+                // Refrescar cada 10 segundos para mantener sincronización con la BD
+                while (true) {
+                    kotlinx.coroutines.delay(10000)
+                    ownerUserId?.let { userId ->
+                        appViewModel.fetchGroups(userId)
+                    }
                 }
             }
             val myProducts = storeId?.let { id ->
@@ -78,10 +85,12 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             } ?: emptyList()
             val activeGroups = storeGroups.filter { it.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE && !it.isExpired }
             val ownerAlias = storeOwner?.ownerAlias ?: storeOwner?.commercialName ?: storeOwner?.name ?: "Bodega"
+            val storePlan = storeOwner?.plan ?: com.nexusbiz.nexusbiz.data.model.StorePlan.FREE
             StoreDashboardScreen(
                 products = myProducts,
                 activeGroups = activeGroups,
                 ownerAlias = ownerAlias,
+                storePlan = storePlan,
                 onPublishProduct = { navController.navigate(Screen.PublishProduct.route) },
                 onViewProducts = {
                     navController.navigate(Screen.MyProducts.route) { launchSingleTop = true }
@@ -134,6 +143,7 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                 }
             }
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val storeSnapshot = authViewModel.currentStore
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
             var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -148,9 +158,9 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             }
             
             PublishProductScreen(
+                storeAddress = storeSnapshot?.address ?: "",
                 onPublish = { name, imageUrl, cat, normalPrice, groupPrice, min, max, productImage, durationHours ->
                     val userSnapshot = currentUser
-                    val storeSnapshot = authViewModel.currentStore
                     scope.launch {
                         isLoading = true
                         errorMessage = null
@@ -172,6 +182,23 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                             val storeId = ownerStore.id
                             val storeName = ownerStore.name.ifEmpty { ownerStore.commercialName ?: userSnapshot.alias.ifEmpty { "Mi Bodega" } }
                             val storeDistrict = ownerStore.district.ifEmpty { userSnapshot.district.ifEmpty { "Trujillo" } }
+                            
+                            // Validar límite de ofertas activas según el plan
+                            val storePlan = ownerStore.plan ?: com.nexusbiz.nexusbiz.data.model.StorePlan.FREE
+                            if (storePlan == com.nexusbiz.nexusbiz.data.model.StorePlan.FREE) {
+                                // Consultar ofertas activas directamente desde la BD
+                                // Si no hay datos o hay error, la función devuelve lista vacía, permitiendo crear
+                                val activeGroupsForStore = groupRepository.getActiveGroupsByStore(storeId)
+                                
+                                android.util.Log.d("StoreNavGraph", "Ofertas activas encontradas: ${activeGroupsForStore.size} para storeId: $storeId")
+                                
+                                // Verificar si ya tiene 2 ofertas activas
+                                if (activeGroupsForStore.size >= 2) {
+                                    isLoading = false
+                                    errorMessage = "Plan Gratuito: Solo puedes tener 2 ofertas activas. Actualiza a Plan PRO para ofertas ilimitadas."
+                                    return@launch
+                                }
+                            }
                                 
                                 val product = com.nexusbiz.nexusbiz.data.model.Product(
                                     name = name,
@@ -185,7 +212,8 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                                     storeName = storeName,
                                     district = storeDistrict,
                                     durationHours = durationHours,
-                                    imageUrl = imageUrl
+                                    imageUrl = imageUrl,
+                                    storePlan = storePlan // Incluir el plan de la bodega
                                 )
                                 
                                 val productResult = productRepository.createProduct(product)
@@ -209,6 +237,12 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                                         groupResult.fold(
                                             onSuccess = { group ->
                                                 isLoading = false
+                                                // Refrescar productos y grupos para mostrar la nueva oferta
+                                                userSnapshot?.let { 
+                                                    appViewModel.fetchProducts("")
+                                                    appViewModel.fetchGroups(it.id)
+                                                }
+                                                // Navegar a la pantalla de oferta publicada
                                                 navController.navigate(Screen.OfferPublished.createRoute(group.id)) {
                                                     popUpTo(Screen.PublishProduct.route) { inclusive = true }
                                                 }
@@ -332,7 +366,7 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                     Toast.makeText(context, "Función disponible próximamente", Toast.LENGTH_SHORT).show()
                 },
                 onScanQR = {
-                    navController.navigate(Screen.ScanQR.route)
+                    navController.navigate(Screen.ScanQR.createRoute(groupId))
                 },
                 onPublishSimilar = {
                     Toast.makeText(context, "Publicar oferta similar próximamente", Toast.LENGTH_SHORT).show()
@@ -342,7 +376,10 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                 }
             )
         }
-        composable(Screen.ScanQR.route) {
+        composable(
+            Screen.ScanQR.route,
+            arguments = listOf(navArgument(Screen.ScanQR.GROUP_ID_ARG) { type = NavType.StringType })
+        ) { backStackEntry ->
             LaunchedEffect(Unit) {
                 if (authViewModel.currentRole != com.nexusbiz.nexusbiz.ui.viewmodel.UserRole.BODEGUERO) {
                     navController.navigate(Screen.LoginBodega.route) {
@@ -351,11 +388,34 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                     return@LaunchedEffect
                 }
             }
+            val groupId = backStackEntry.arguments?.getString(Screen.ScanQR.GROUP_ID_ARG)
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val context = LocalContext.current
             val scope = rememberCoroutineScope()
             ScanQRScreen(
-                onQRScanned = { qrData ->
-                    scope.launch { groupRepository.validateGroup(qrData) }
-                    navController.popBackStack()
+                groupId = groupId,
+                onQRScanned = { qrCode ->
+                    scope.launch {
+                        // El QR contiene el código del grupo
+                        // Validar que el QR pertenezca al grupo esperado
+                        val result = groupRepository.validateQRByCode(qrCode)
+                        result.onSuccess { group ->
+                            // Verificar que el grupo escaneado coincida con el grupo actual
+                            if (groupId != null && group.id != groupId) {
+                                Toast.makeText(context, "Este QR no pertenece a este grupo", Toast.LENGTH_SHORT).show()
+                            } else {
+                                // El QR es válido, ahora necesitamos validar al participante
+                                // Por ahora, mostramos un mensaje de éxito
+                                Toast.makeText(context, "QR válido. Buscando participante...", Toast.LENGTH_SHORT).show()
+                                // TODO: Implementar selección de participante o actualizar QR para incluir userId
+                                // Refrescar el grupo para ver los cambios
+                                groupId?.let { appViewModel.fetchGroupById(it) }
+                                navController.popBackStack()
+                            }
+                        }.onFailure { error ->
+                            Toast.makeText(context, "Error: ${error.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -379,7 +439,6 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                 onChangePassword = { navController.navigate(Screen.ChangePassword.route) },
                 onTermsAndPrivacy = { navController.navigate(Screen.TermsAndPrivacy.route) },
                 onPlanPro = { navController.navigate(Screen.StoreSubscriptionPro.route) },
-                onBoostVisibility = { navController.navigate(Screen.StoreBoostVisibility.route) },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Screen.Login.route) {
@@ -394,12 +453,6 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             StoreSubscriptionProScreen(
                 onBack = { navController.popBackStack() },
                 onSubscribe = { }
-            )
-        }
-        composable(Screen.StoreBoostVisibility.route) {
-            StoreBoostVisibilityScreen(
-                onBack = { navController.popBackStack() },
-                onRequestBoost = { }
             )
         }
     }

@@ -58,6 +58,7 @@ fun StoreDashboardScreen(
     products: List<Product> = emptyList(),
     activeGroups: List<Group> = emptyList(),
     ownerAlias: String = "Bodega",
+    storePlan: com.nexusbiz.nexusbiz.data.model.StorePlan = com.nexusbiz.nexusbiz.data.model.StorePlan.FREE,
     onPublishProduct: () -> Unit,
     onViewProducts: () -> Unit,
     onGroupClick: (String) -> Unit,
@@ -72,14 +73,17 @@ fun StoreDashboardScreen(
     val muted = Color(0xFF606060)
     val background = Color(0xFFF4F4F7)
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
+    // Activos: ofertas con status ACTIVE que no han expirado
     val activeOffers = remember(activeGroups) {
         activeGroups.filter { it.status == GroupStatus.ACTIVE && !it.isExpired }
     }
+    // En retiro: ofertas con status PICKUP (listas para escanear QR)
     val pickupOffers = remember(activeGroups) {
-        activeGroups.filter { it.status == GroupStatus.COMPLETED || it.status == GroupStatus.VALIDATED }
+        activeGroups.filter { it.status == GroupStatus.PICKUP }
     }
+    // Finalizados: ofertas completadas (VALIDATED o COMPLETED)
     val finishedOffers = remember(activeGroups) {
-        activeGroups.filter { it.status == GroupStatus.EXPIRED || it.isExpired }
+        activeGroups.filter { it.status == GroupStatus.VALIDATED || it.status == GroupStatus.COMPLETED }
     }
 
     Scaffold(
@@ -142,17 +146,44 @@ fun StoreDashboardScreen(
                 }
 
                 item {
+                    // Verificar si puede publicar más ofertas según el plan
+                    val canPublishMore = if (storePlan == com.nexusbiz.nexusbiz.data.model.StorePlan.FREE) {
+                        activeOffers.size < 2
+                    } else {
+                        true // Plan PRO: ofertas ilimitadas
+                    }
+                    
                     Button(
                         onClick = onPublishProduct,
+                        enabled = canPublishMore,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = accent),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (canPublishMore) accent else Color(0xFF9CA3AF),
+                            disabledContainerColor = Color(0xFF9CA3AF)
+                        ),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Publicar nueva oferta", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = if (canPublishMore) {
+                                "Publicar nueva oferta"
+                            } else {
+                                "Límite alcanzado (2/2)"
+                            },
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    if (!canPublishMore) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Plan Gratuito: Solo 2 ofertas activas. Actualiza a PRO para más.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF6B7280),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
                     }
                 }
 

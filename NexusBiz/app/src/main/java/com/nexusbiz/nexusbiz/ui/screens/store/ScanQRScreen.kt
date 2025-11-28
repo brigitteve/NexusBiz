@@ -1,5 +1,7 @@
 package com.nexusbiz.nexusbiz.ui.screens.store
 
+import android.Manifest
+import android.view.ViewGroup
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -7,7 +9,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,9 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,20 +27,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashlightOn
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,45 +45,52 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import kotlin.random.Random
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.rememberPermissionState
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.ResultPoint
+import com.journeyapps.barcodescanner.BarcodeCallback
+import com.journeyapps.barcodescanner.BarcodeResult
+import com.journeyapps.barcodescanner.DecoratedBarcodeView
+import com.journeyapps.barcodescanner.DefaultDecoderFactory
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ScanQRScreen(
-    grupoData: GrupoScanData = GrupoScanData(),
+    groupId: String? = null,
     onQRScanned: (String) -> Unit,
     onBack: () -> Unit
 ) {
-    var isScanning by rememberSaveable { mutableStateOf(true) }
+    val context = LocalContext.current
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    
+    var isScanning by rememberSaveable { mutableStateOf(false) }
     var flashlightOn by rememberSaveable { mutableStateOf(false) }
     var scanResult by remember { mutableStateOf<ScanResultFeedback?>(null) }
+    var barcodeView by remember { mutableStateOf<DecoratedBarcodeView?>(null) }
 
-    var unidadesValidadas by rememberSaveable { mutableStateOf(grupoData.unidadesValidadas) }
-    var clientesAtendidos by rememberSaveable { mutableStateOf(grupoData.clientesAtendidos) }
-    var clientesValidados by remember { mutableStateOf(grupoData.clientesValidados.toMutableSet()) }
+    // Solicitar permiso de cámara al iniciar
+    LaunchedEffect(Unit) {
+        if (cameraPermissionState.status !is PermissionStatus.Granted) {
+            cameraPermissionState.launchPermissionRequest()
+        } else {
+            isScanning = true
+        }
+    }
 
-    LaunchedEffect(isScanning, scanResult) {
-        if (isScanning && scanResult == null) {
-            delay(3000)
-            val result = simulateScan(clientesValidados)
-            handleScanResult(
-                result = result,
-                onSuccess = { cliente, unidades, qrId ->
-                    clientesValidados.add(cliente)
-                    unidadesValidadas += unidades
-                    clientesAtendidos += 1
-                    onQRScanned(qrId)
-                },
-                onFeedback = { scanResult = it }
-            )
+    // Observar cuando se otorga el permiso
+    LaunchedEffect(cameraPermissionState.status) {
+        if (cameraPermissionState.status is PermissionStatus.Granted) {
+            isScanning = true
         }
     }
 
@@ -98,7 +99,120 @@ fun ScanQRScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        CameraBackground()
+        // Mostrar cámara solo si tiene permiso
+        if (cameraPermissionState.status is PermissionStatus.Granted) {
+            AndroidView(
+                factory = { ctx ->
+                    val view = DecoratedBarcodeView(ctx).apply {
+                        val formats = listOf(BarcodeFormat.QR_CODE)
+                        barcodeView = this
+                        decoderFactory = DefaultDecoderFactory(formats)
+                        resume()
+                    }
+                    view
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    if (isScanning && scanResult == null) {
+                        view.decodeContinuous(object : BarcodeCallback {
+                            override fun barcodeResult(result: BarcodeResult?) {
+                                result?.text?.let { qrCode ->
+                                    // Detener el escaneo temporalmente
+                                    isScanning = false
+                                    view.pause()
+                                    
+                                    // Procesar el resultado
+                                    handleQRResult(
+                                        qrCode = qrCode,
+                                        groupId = groupId,
+                                        onSuccess = { message ->
+                                            scanResult = ScanResultFeedback(
+                                                type = ScanResultType.SUCCESS,
+                                                title = "QR escaneado",
+                                                subtitle = message
+                                            )
+                                            onQRScanned(qrCode)
+                                        },
+                                        onError = { errorMessage ->
+                                            scanResult = ScanResultFeedback(
+                                                type = ScanResultType.ERROR,
+                                                title = "Error",
+                                                subtitle = errorMessage
+                                            )
+                                            // Reanudar escaneo después de un momento
+                                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                                isScanning = true
+                                                view.resume()
+                                            }, 2000)
+                                        },
+                                        onWarning = { warningMessage ->
+                                            scanResult = ScanResultFeedback(
+                                                type = ScanResultType.WARNING,
+                                                title = "Advertencia",
+                                                subtitle = warningMessage
+                                            )
+                                            // Reanudar escaneo después de un momento
+                                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                                isScanning = true
+                                                view.resume()
+                                            }, 2000)
+                                        }
+                                    )
+                                }
+                            }
+
+                            override fun possibleResultPoints(resultPoints: MutableList<ResultPoint>?) {
+                                // No necesitamos hacer nada aquí
+                            }
+                        })
+                    } else if (!isScanning) {
+                        view.pause()
+                    }
+                }
+            )
+
+            // Control de linterna
+            LaunchedEffect(flashlightOn) {
+                barcodeView?.let { view ->
+                    if (flashlightOn) {
+                        view.setTorchOn()
+                    } else {
+                        view.setTorchOff()
+                    }
+                }
+            }
+
+            // Limpiar cuando se desmonte
+            DisposableEffect(Unit) {
+                onDispose {
+                    barcodeView?.pause()
+                    barcodeView?.setTorchOff()
+                }
+            }
+        } else {
+            // Mostrar mensaje si no tiene permiso
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Se necesita permiso de cámara para escanear QR",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Button(
+                    onClick = { cameraPermissionState.launchPermissionRequest() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("Solicitar permiso", color = Color.White)
+                }
+            }
+        }
 
         // Top overlay
         Box(
@@ -134,6 +248,7 @@ fun ScanQRScreen(
                 )
                 IconButton(
                     onClick = { flashlightOn = !flashlightOn },
+                    enabled = cameraPermissionState.status is PermissionStatus.Granted,
                     modifier = Modifier
                         .size(48.dp)
                         .background(
@@ -150,50 +265,15 @@ fun ScanQRScreen(
             }
         }
 
-        // Scan frame
-        ScanFrame(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 32.dp),
-            isScanning = isScanning && scanResult == null
-        )
-
-        // Manual scan trigger
-        Button(
-            onClick = {
-                if (scanResult == null) {
-                    val result = simulateScan(clientesValidados)
-                    handleScanResult(
-                        result = result,
-                        onSuccess = { cliente, unidades, qrId ->
-                            clientesValidados.add(cliente)
-                            unidadesValidadas += unidades
-                            clientesAtendidos += 1
-                            onQRScanned(qrId)
-                        },
-                        onFeedback = { scanResult = it }
-                    )
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 140.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .shadow(8.dp, RoundedCornerShape(999.dp)),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-        ) {
-            Text(text = "Simular escaneo", color = Color.White, fontWeight = FontWeight.SemiBold)
+        // Scan frame overlay
+        if (cameraPermissionState.status is PermissionStatus.Granted) {
+            ScanFrame(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp),
+                isScanning = isScanning && scanResult == null
+            )
         }
-
-        // Bottom status panel
-        BottomStatusPanel(
-            modifier = Modifier.align(Alignment.BottomCenter),
-            producto = grupoData.producto,
-            unidadesValidadas = unidadesValidadas,
-            metaUnidades = grupoData.metaUnidades,
-            clientesAtendidos = clientesAtendidos,
-            onClose = onBack
-        )
 
         // Feedback overlay
         scanResult?.let { feedback ->
@@ -201,76 +281,34 @@ fun ScanQRScreen(
                 feedback = feedback,
                 onDismiss = {
                     scanResult = null
-                    isScanning = true
+                    if (cameraPermissionState.status is PermissionStatus.Granted) {
+                        isScanning = true
+                        barcodeView?.resume()
+                    }
                 }
             )
         }
     }
 }
 
-private fun handleScanResult(
-    result: SimulatedScanResult,
-    onSuccess: (String, Int, String) -> Unit,
-    onFeedback: (ScanResultFeedback) -> Unit
+private fun handleQRResult(
+    qrCode: String,
+    groupId: String?,
+    onSuccess: (String) -> Unit,
+    onError: (String) -> Unit,
+    onWarning: (String) -> Unit
 ) {
-    when (result.type) {
-        ScanResultType.SUCCESS -> {
-            onSuccess(result.cliente!!, result.unidades!!, result.qrId!!)
-            onFeedback(
-                ScanResultFeedback(
-                    type = ScanResultType.SUCCESS,
-                    title = "Reserva validada",
-                    subtitle = "Cliente: ${result.cliente}",
-                    unidades = result.unidades
-                )
-            )
-        }
-
-        ScanResultType.WARNING -> {
-            onFeedback(
-                ScanResultFeedback(
-                    type = ScanResultType.WARNING,
-                    title = "QR ya validado",
-                    subtitle = "Este QR ya fue utilizado"
-                )
-            )
-        }
-
-        ScanResultType.ERROR -> {
-            onFeedback(
-                ScanResultFeedback(
-                    type = ScanResultType.ERROR,
-                    title = "QR incorrecto",
-                    subtitle = "Este QR no pertenece a este grupo"
-                )
-            )
-        }
+    // Validar que el QR tenga un formato válido
+    if (qrCode.isBlank()) {
+        onError("Código QR vacío")
+        return
     }
-}
 
-@Composable
-private fun CameraBackground() {
-    Canvas(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF0F172A), Color(0xFF020617))
-            ),
-            size = size,
-            style = Fill
-        )
-        repeat(60) {
-            val x = Random.nextFloat() * size.width
-            val y = Random.nextFloat() * size.height
-            val radius = Random.nextDouble(1.0, 3.0).toFloat()
-            drawCircle(
-                color = Color.White.copy(alpha = Random.nextFloat()),
-                radius = radius,
-                center = androidx.compose.ui.geometry.Offset(x, y)
-            )
-        }
-    }
+    // El QR puede contener solo el código del grupo o un formato codificado
+    // Por ahora, asumimos que el QR contiene el código del grupo
+    // La validación real se hará en el repositorio
+    // Si hay un groupId esperado, podemos validar que coincida
+    onSuccess("QR escaneado correctamente")
 }
 
 @Composable
@@ -331,94 +369,6 @@ private fun ScanFrame(modifier: Modifier = Modifier, isScanning: Boolean) {
 }
 
 @Composable
-private fun BottomStatusPanel(
-    modifier: Modifier,
-    producto: String,
-    unidadesValidadas: Int,
-    metaUnidades: Int,
-    clientesAtendidos: Int,
-    onClose: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.85f)
-                )
-            )
-            .padding(horizontal = 16.dp, vertical = 24.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Color.White.copy(alpha = 0.08f),
-                    RoundedCornerShape(28.dp)
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp))
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(text = producto, color = Color.White, fontWeight = FontWeight.SemiBold)
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Unidades validadas", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-                    Text(
-                        "$unidadesValidadas / $metaUnidades",
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color.White.copy(alpha = 0.2f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((unidadesValidadas / metaUnidades.toFloat()).coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(Color(0xFF4ADE80), RoundedCornerShape(999.dp))
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Clientes atendidos", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-                    Text(
-                        clientesAtendidos.toString(),
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Button(
-                    onClick = onClose,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
-                    modifier = Modifier
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                ) {
-                    Text(text = "Cerrar escáner", color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun FeedbackDialog(
     feedback: ScanResultFeedback,
     onDismiss: () -> Unit
@@ -461,14 +411,6 @@ private fun FeedbackDialog(
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center
             )
-            feedback.unidades?.let {
-                Text(
-                    text = "Unidades: $it",
-                    color = Color(0xFF1F2937),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
 
             Button(
                 onClick = onDismiss,
@@ -481,144 +423,12 @@ private fun FeedbackDialog(
     }
 }
 
-@Composable
-private fun StatsGrid(
-    reservedText: String,
-    soldText: String,
-    scannedText: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        StatColumn(label = "Reservadas", value = reservedText)
-        StatColumn(label = "Vendidas", value = soldText)
-        StatColumn(label = "Escaneadas", value = scannedText)
-    }
-}
-
-@Composable
-private fun RowScope.InfoPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String
-) {
-    Surface(
-        modifier = Modifier
-            .weight(1f)
-            .height(64.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White.copy(alpha = 0.08f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(20.dp))
-            Column {
-                Text(text = label, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                Text(text = value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.StatCard(
-    title: String,
-    value: String,
-    color: Color
-) {
-    Surface(
-        modifier = Modifier
-            .weight(1f)
-            .height(96.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = color.copy(alpha = 0.08f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(text = value, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = color)
-            Text(text = title, fontSize = 13.sp, color = Color(0xFF9CA3AF))
-        }
-    }
-}
-
-@Composable
-private fun RowScope.StatColumn(label: String, value: String) {
-    Column(
-        modifier = Modifier.weight(1f),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = label, color = Color(0xFF6B7280), fontSize = 12.sp)
-        Text(text = value, color = Color(0xFF111827), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-private fun simulateScan(validatedClients: Set<String>): SimulatedScanResult {
-    val randomQR = QR_DATABASE.random()
-    return when {
-        randomQR.grupoId != "GRUPO_ACTUAL" -> SimulatedScanResult(type = ScanResultType.ERROR)
-        validatedClients.contains(randomQR.cliente) -> SimulatedScanResult(type = ScanResultType.WARNING)
-        else -> SimulatedScanResult(
-            type = ScanResultType.SUCCESS,
-            cliente = randomQR.cliente,
-            unidades = randomQR.unidades,
-            qrId = randomQR.id
-        )
-    }
-}
-
-private data class QRRecord(
-    val id: String,
-    val cliente: String,
-    val unidades: Int,
-    val grupoId: String
-)
-
 private enum class ScanResultType { SUCCESS, WARNING, ERROR }
-
-private data class SimulatedScanResult(
-    val type: ScanResultType,
-    val cliente: String? = null,
-    val unidades: Int? = null,
-    val qrId: String? = null
-)
 
 private data class ScanResultFeedback(
     val type: ScanResultType,
     val title: String,
-    val subtitle: String,
-    val unidades: Int? = null
-)
-
-data class GrupoScanData(
-    val producto: String = "Leche Gloria 1L",
-    val unidadesValidadas: Int = 12,
-    val metaUnidades: Int = 20,
-    val clientesAtendidos: Int = 8,
-    val clientesValidados: Set<String> = setOf("Usuario123")
-)
-
-private val QR_DATABASE = listOf(
-    QRRecord("QR001", "Usuario123", 2, "GRUPO_ACTUAL"),
-    QRRecord("QR002", "MariaP45", 3, "GRUPO_ACTUAL"),
-    QRRecord("QR003", "CarlosM88", 1, "GRUPO_ACTUAL"),
-    QRRecord("QR004", "AnaLucia22", 2, "GRUPO_ACTUAL"),
-    QRRecord("QR005", "PedroJR", 4, "GRUPO_ACTUAL"),
-    QRRecord("QR006", "LucyVega", 2, "GRUPO_ACTUAL"),
-    QRRecord("QR007", "JorgeL99", 3, "GRUPO_ACTUAL"),
-    QRRecord("QR008", "SofiaRios", 1, "GRUPO_ACTUAL"),
-    QRRecord("QR999", "TestUser", 2, "OTRO_GRUPO")
+    val subtitle: String
 )
 
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

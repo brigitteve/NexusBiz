@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,18 +53,16 @@ fun StoreSubscriptionProScreen(
 ) {
     val context = LocalContext.current
     val freeFeatures = listOf(
-        FeatureItem("1 oferta activa", true),
-        FeatureItem("1 grupo por oferta", true),
-        FeatureItem("Sin estadísticas", false),
-        FeatureItem("Posición estándar en Home", true)
+        FeatureItem("2 ofertas activas", true),
+        FeatureItem("Posición estándar en lista", true),
+        FeatureItem("Cards estándar", true)
     )
     val proFeatures = listOf(
-        FeatureItem("4 ofertas activas", true),
-        FeatureItem("3 grupos simultáneos", true),
-        FeatureItem("Estadísticas del distrito", true),
-        FeatureItem("Mejor posición en Home", true),
-        FeatureItem("Insignia \"Bodega PRO\"", true),
-        FeatureItem("Soporte prioritario", true)
+        FeatureItem("Ofertas ilimitadas", true),
+        FeatureItem("Cards doradas", true),
+        FeatureItem("Mayor visibilidad", true),
+        FeatureItem("Siempre primeros en la lista", true),
+        FeatureItem("Insignia \"Bodega PRO\"", true)
     )
 
     Column(
@@ -154,19 +153,19 @@ fun StoreSubscriptionProScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Highlight(
-                    icon = Icons.Default.BarChart,
-                    text = "Estadísticas avanzadas",
-                    color = Color(0xFF10B981)
-                )
-                Highlight(
-                    icon = Icons.Default.TrendingUp,
-                    text = "Más visibilidad",
+                    icon = Icons.Default.Star,
+                    text = "Cards doradas",
                     color = Color(0xFFFACC15)
                 )
                 Highlight(
-                    icon = Icons.Default.Star,
-                    text = "Insignia PRO",
+                    icon = Icons.Default.TrendingUp,
+                    text = "Mayor visibilidad",
                     color = Color(0xFFFF914D)
+                )
+                Highlight(
+                    icon = Icons.Default.ArrowUpward,
+                    text = "Siempre primeros",
+                    color = Color(0xFF10B981)
                 )
             }
         }

@@ -81,6 +81,8 @@ data class Product(
     val isActive: Boolean = false,
     @SerialName("duration_hours")
     val durationHours: Int = 0,
+    @SerialName("store_plan")
+    val storePlan: String? = null, // "FREE" o "PRO" (denormalizado desde bodegas)
     @SerialName("created_at")
     val createdAt: String? = null,
     @SerialName("updated_at")
@@ -104,7 +106,7 @@ data class Store(
     @SerialName("phone")
     val phone: String? = null,
     @SerialName("image_url")
-    val imageUrl: String = "",
+    val imageUrl: String? = null,
     @SerialName("has_stock")
     val hasStock: Boolean = false,
     @SerialName("owner_id")
@@ -117,6 +119,10 @@ data class Store(
     val ruc: String = "",
     @SerialName("commercial_name")
     val commercialName: String = "",
+    @SerialName("owner_alias")
+    val ownerAlias: String? = null,
+    @SerialName("plan")
+    val plan: String = "FREE", // "FREE" o "PRO"
     @SerialName("created_at")
     val createdAt: String? = null,
     @SerialName("updated_at")

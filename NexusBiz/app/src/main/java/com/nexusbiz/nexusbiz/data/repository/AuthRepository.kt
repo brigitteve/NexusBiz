@@ -173,11 +173,38 @@ class AuthRepository {
             }
             
             // Buscar bodega del propietario
-            val store = supabase.from("bodegas")
+            val remoteStore = supabase.from("bodegas")
                 .select {
                     filter { eq("owner_id", user.id) }
                 }
-                .decodeSingleOrNull<Store>()
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.Store>()
+            
+            val store = remoteStore?.let { remote ->
+                val plan = when (remote.plan) {
+                    "PRO" -> com.nexusbiz.nexusbiz.data.model.StorePlan.PRO
+                    else -> com.nexusbiz.nexusbiz.data.model.StorePlan.FREE
+                }
+                Store(
+                    id = remote.id,
+                    name = remote.name,
+                    address = remote.address,
+                    district = remote.district,
+                    latitude = remote.latitude,
+                    longitude = remote.longitude,
+                    phone = remote.phone,
+                    imageUrl = remote.imageUrl,
+                    hasStock = remote.hasStock,
+                    ownerId = remote.ownerId,
+                    rating = remote.rating.takeIf { it > 0 },
+                    totalSales = remote.totalSales,
+                    ruc = remote.ruc,
+                    commercialName = remote.commercialName,
+                    ownerAlias = remote.ownerAlias,
+                    plan = plan,
+                    createdAt = remote.createdAt,
+                    updatedAt = remote.updatedAt
+                )
+            }
             
             if (store == null) {
                 Log.w("AuthRepository", "Bodega no encontrada para usuario: ${user.id}")
@@ -222,16 +249,33 @@ class AuthRepository {
                 return Result.failure(Exception("El alias ya está en uso"))
             }
             
+            val userId = UUID.randomUUID().toString()
+            
+            // Insertar usuario usando mapa explícito
+            // IMPORTANTE: Asegúrate de que la columna fecha_nacimiento existe en Supabase
+            // Ejecuta el archivo migration_add_fecha_nacimiento.sql si recibes un error
+            // Nota: phone se envía como null porque tiene restricción UNIQUE y no se usa en el registro
+            supabase.from("usuarios").insert(
+                mapOf(
+                    "id" to userId,
+                    "alias" to alias,
+                    "password_hash" to passwordHash,
+                    "fecha_nacimiento" to fechaNacimiento,
+                    "district" to distrito,
+                    "user_type" to "CONSUMER",
+                    "phone" to null // Null porque phone tiene restricción UNIQUE y no se usa
+                )
+            )
+            
+            // Crear objeto User para el estado local (sin fecha_nacimiento por ahora)
             val user = User(
-                id = UUID.randomUUID().toString(),
+                id = userId,
                 alias = alias,
                 passwordHash = passwordHash,
-                fechaNacimiento = fechaNacimiento,
+                fechaNacimiento = fechaNacimiento, // Se mantiene en el objeto local para validación
                 district = distrito,
                 userType = com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
             )
-            
-            supabase.from("usuarios").insert(user)
             _currentUser.value = user
             Result.success(user)
         } catch (e: IllegalStateException) {
@@ -379,16 +423,32 @@ class AuthRepository {
             
             // Crear usuario
             val userId = UUID.randomUUID().toString()
+            
+            // Insertar usuario usando mapa explícito
+            // IMPORTANTE: Asegúrate de que la columna fecha_nacimiento existe en Supabase
+            // Ejecuta el archivo migration_add_fecha_nacimiento.sql si recibes un error
+            // Nota: phone se envía como null porque tiene restricción UNIQUE y no se usa en el registro
+            supabase.from("usuarios").insert(
+                mapOf(
+                    "id" to userId,
+                    "alias" to alias,
+                    "password_hash" to passwordHash,
+                    "fecha_nacimiento" to fechaNacimiento,
+                    "district" to district,
+                    "user_type" to "STORE_OWNER",
+                    "phone" to null // Null porque phone tiene restricción UNIQUE y no se usa
+                )
+            )
+            
+            // Crear objeto User para el estado local (sin fecha_nacimiento por ahora)
             val user = User(
                 id = userId,
                 alias = alias,
                 passwordHash = passwordHash,
-                fechaNacimiento = fechaNacimiento,
+                fechaNacimiento = fechaNacimiento, // Se mantiene en el objeto local para validación
                 district = district,
                 userType = com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
             )
-            
-            supabase.from("usuarios").insert(user)
             
             // Crear bodega
             val storeId = UUID.randomUUID().toString()

@@ -405,3 +405,37 @@ COMMENT ON COLUMN participantes.is_validated IS 'Indica si el participante ya re
 -- =====================================================
 -- FIN DEL ESQUEMA
 -- =====================================================
+-- =====================================================
+-- MIGRACIÓN: Eliminar verificación telefónica y agregar owner_alias
+-- Fecha: 2024
+-- Descripción: 
+--   1. Modificar columna phone en bodegas para permitir NULL
+--   2. Agregar campo owner_alias a bodegas para mostrar alias del bodeguero
+-- =====================================================
+
+-- 1. Modificar columna phone para permitir NULL
+-- Esto permite que las bodegas se registren sin teléfono
+ALTER TABLE bodegas 
+ALTER COLUMN phone DROP NOT NULL;
+
+-- 2. Agregar campo owner_alias a la tabla bodegas
+-- Este campo almacenará el alias del usuario propietario de la bodega
+ALTER TABLE bodegas 
+ADD COLUMN IF NOT EXISTS owner_alias TEXT;
+
+-- 3. (Opcional) Actualizar bodegas existentes con el alias del propietario
+-- Si ya tienes bodegas registradas, puedes ejecutar esto para poblar el campo
+UPDATE bodegas b
+SET owner_alias = u.alias
+FROM usuarios u
+WHERE b.owner_id = u.id
+AND b.owner_alias IS NULL;
+
+-- 4. Comentario de documentación
+COMMENT ON COLUMN bodegas.phone IS 'Teléfono de contacto (opcional, puede ser NULL)';
+COMMENT ON COLUMN bodegas.owner_alias IS 'Alias del usuario propietario de la bodega. Usado en StoreDashboardScreen.kt para mostrar el nombre del bodeguero';
+
+-- =====================================================
+-- FIN DE LA MIGRACIÓN
+-- =====================================================
+

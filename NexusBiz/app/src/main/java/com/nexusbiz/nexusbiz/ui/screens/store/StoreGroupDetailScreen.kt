@@ -300,14 +300,19 @@ private fun StoreActiveContent(
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // Solo mostrar tiempo restante si estado es ACTIVE
-                        if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE) {
+                        // Mostrar tiempo transcurrido desde que se creó la oferta
+                        val timeElapsed = formatTimeElapsed(group.createdAt)
+                        val timeRemaining = formatTimeRemaining(group.expiresAt)
+                        InfoPill(
+                            icon = Icons.Default.AccessTime,
+                            label = "Tiempo transcurrido",
+                            value = timeElapsed
+                        )
                             InfoPill(
                                 icon = Icons.Default.AccessTime,
                                 label = "Tiempo restante",
-                                value = formatTimeRemaining(group.expiresAt)
+                            value = timeRemaining
                             )
-                        }
                         InfoPill(
                             icon = Icons.Default.People,
                             label = "Participantes",
@@ -318,21 +323,34 @@ private fun StoreActiveContent(
             }
         )
 
-        // IMPORTANTE: Validados = participantes con is_validated = true
-        // Por reservar = current_size - validados (unidades, no personas)
+        // IMPORTANTE: Validados = participantes con is_validated = true (aumentan según escaneo QR)
+        // Pendientes = participantes reservados pero aún no validados
         val validatedCount = participants.count { it.state == ParticipantState.VALIDATED || it.state == ParticipantState.RETIRED }
         val validatedUnits = participants.filter { it.state == ParticipantState.VALIDATED || it.state == ParticipantState.RETIRED }
             .sumOf { it.units }
-        val pendingUnits = group.currentSize - validatedUnits
+        val totalReservedUnits = participants.sumOf { it.units }
+        val pendingUnits = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+            // En PICKUP: pendientes = unidades reservadas - unidades validadas
+            totalReservedUnits - validatedUnits
+        } else {
+            // En ACTIVE: faltan unidades para alcanzar la meta
+            (group.targetSize - totalReservedUnits).coerceAtLeast(0)
+        }
         
+        // Mostrar estadísticas de reservas/validaciones
         ValidationStatsCard(
-            validated = validatedCount,
-            pending = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) pendingUnits else participants.count { it.state == ParticipantState.PENDING },
-            pendingTitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Por validar (unidades)" else "Por reservar"
+            validated = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+                validatedUnits // En PICKUP: mostrar unidades validadas
+            } else {
+                totalReservedUnits // En ACTIVE: mostrar unidades reservadas
+            },
+            pending = pendingUnits,
+            validatedTitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Validados (unidades)" else "Reservadas (unidades)",
+            pendingTitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) "Por validar (unidades)" else "Faltan (unidades)"
         )
 
         ParticipantsExpandableList(
-            title = "Ver participantes (${participants.size})",
+            title = "Ver participantes (${participants.size} personas · ${totalReservedUnits} unidades)",
             participants = participants,
             expanded = showParticipants,
             onToggle = { showParticipants = !showParticipants }
@@ -343,7 +361,7 @@ private fun StoreActiveContent(
                 text = "Compartir grupo",
                 onClick = { onShare(group) }
             )
-            // Botón "Escanear QR" solo habilitado si estado = PICKUP
+            // Botón "Escanear QR" solo habilitado si estado = PICKUP (cuando se alcanzó la meta)
             if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
                 GradientButton(
                     text = "Escanear QR",
@@ -353,7 +371,7 @@ private fun StoreActiveContent(
                 DisabledButton(
                     text = "Escanear QR", 
                     subtitle = if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE) 
-                        "Solo disponible cuando se llegue a la meta" 
+                        "Solo disponible cuando se alcance la meta de ${group.targetSize} unidades" 
                     else 
                         "No disponible para este estado"
                 )
@@ -430,7 +448,9 @@ private fun StoreCompletedContent(
 
         ValidationStatsCard(
             validated = scannedCount,
-            pending = pendingUnits
+            pending = pendingUnits,
+            validatedTitle = "Validados (unidades)",
+            pendingTitle = "Pendientes (unidades)"
         )
 
         ParticipantsExpandableList(
@@ -546,29 +566,44 @@ private fun ProgressSection(
     progressPercent: Int,
     remaining: Int
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Progreso del grupo", color = Color(0xFF6B7280), fontSize = 14.sp)
-            Text(text = "$reserved/$total unidades", color = Color(0xFF1F2937), fontSize = 14.sp)
+            Column {
+                Text(text = "Progreso de reservas", color = Color(0xFF6B7280), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+            }
+            Text(text = "$reserved/$total", color = Color(0xFF1F2937), fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         LinearProgressIndicator(
             progress = progressPercent / 100f,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(12.dp)
-                .clip(RoundedCornerShape(12.dp)),
+                .height(16.dp)
+                .clip(RoundedCornerShape(16.dp)),
             color = Color(0xFF10B981),
             trackColor = Color(0xFFE5E7EB)
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
         Text(
-            text = "$progressPercent% completado · Faltan $remaining unidades",
-            color = Color(0xFF6B7280),
-            fontSize = 13.sp
+                text = "$progressPercent% completado",
+                color = Color(0xFF10B981),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Faltan $remaining unidades",
+                color = Color(0xFFFF914D),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
         )
+        }
     }
 }
 
@@ -634,6 +669,7 @@ private fun RowScope.StatCard(
 private fun ValidationStatsCard(
     validated: Int,
     pending: Int,
+    validatedTitle: String = "Validados",
     pendingTitle: String = "Pendientes"
 ) {
     Card(
@@ -644,9 +680,15 @@ private fun ValidationStatsCard(
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(text = "Validaciones", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1A1A1A))
+            Text(
+                text = "Los validados aumentan según el escaneo QR. Los pendientes son reservas aún no validadas.",
+                fontSize = 12.sp,
+                color = Color(0xFF9CA3AF),
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatCard(
-                    title = "Validados",
+                    title = validatedTitle,
                     value = validated.toString(),
                     color = Color(0xFF10B981)
                 )
@@ -963,6 +1005,15 @@ private fun formatTimeRemaining(expiresAt: Long): String {
     val now = System.currentTimeMillis()
     val diff = expiresAt - now
     if (diff <= 0) return "Tiempo vencido"
+    val hours = diff / (1000 * 60 * 60)
+    val minutes = (diff % (1000 * 60 * 60)) / (1000 * 60)
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+}
+
+private fun formatTimeElapsed(createdAt: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - createdAt
+    if (diff <= 0) return "Recién creado"
     val hours = diff / (1000 * 60 * 60)
     val minutes = (diff % (1000 * 60 * 60)) / (1000 * 60)
     return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"

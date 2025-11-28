@@ -445,6 +445,35 @@ class GroupRepository {
     }
     
     /**
+     * Obtiene grupos activos (ACTIVE y no expirados) de una bodega específica
+     * Usado para validar límites de ofertas según el plan
+     */
+    suspend fun getActiveGroupsByStore(storeId: String): List<Group> {
+        return try {
+            val now = System.currentTimeMillis()
+            supabase.from("grupos")
+                .select {
+                    filter {
+                        eq("store_id", storeId)
+                        eq("status", "ACTIVE")
+                    }
+                }
+                .decodeList<JsonObject>()
+                .mapNotNull { groupFromDB(it) }
+                .filter { group ->
+                    // Filtrar grupos que no han expirado
+                    group.expiresAt > now && !group.isExpired
+                }
+        } catch (e: IllegalStateException) {
+            Log.e("GroupRepository", "Supabase no inicializado", e)
+            emptyList()
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error al obtener grupos activos de bodega: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
+    /**
      * Valida un QR escaneado por el bodeguero
      * Busca el grupo por QR y luego busca el participante del cliente que escaneó
      */

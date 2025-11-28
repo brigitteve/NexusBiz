@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Product
+import com.nexusbiz.nexusbiz.data.model.StorePlan
 import java.text.NumberFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -46,13 +47,21 @@ fun ProductCard(
     val currentMembers = (product.minGroupSize * progressValue).roundToInt().coerceAtMost(product.minGroupSize)
     val remainingUnits = (product.minGroupSize - currentMembers).coerceAtLeast(0)
 
+    val isPro = product.storePlan == StorePlan.PRO
+    
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isPro) 4.dp else 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isPro) {
+                Color(0xFFFFF9E6) // Fondo dorado claro para plan PRO
+            } else {
+                Color.White
+            }
+        )
     ) {
         Column {
             Box(
@@ -69,6 +78,24 @@ fun ProductCard(
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentScale = ContentScale.Crop
                 )
+                // Badge PRO dorado
+                if (isPro) {
+                    Surface(
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .align(Alignment.TopStart),
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xFFFACC15)
+                    ) {
+                        Text(
+                            text = "PRO",
+                            color = Color(0xFF7C2D12),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
                 if (discountPercent > 0) {
                     Surface(
                         modifier = Modifier

@@ -38,6 +38,8 @@ data class Product(
     val isActive: Boolean = true,
     @SerialName("duration_hours")
     val durationHours: Int = 24,
+    @SerialName("store_plan")
+    val storePlan: StorePlan? = null, // Plan de la bodega (para ordenamiento y visualización)
     @SerialName("created_at")
     val createdAt: String? = null,
     @SerialName("updated_at")

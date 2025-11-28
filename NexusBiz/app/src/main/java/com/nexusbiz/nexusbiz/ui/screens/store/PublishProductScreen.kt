@@ -66,29 +66,61 @@ import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.ui.components.CustomTextField
 import com.nexusbiz.nexusbiz.util.Validators
 import kotlin.random.Random
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
+import java.io.FileOutputStream
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Environment
+import java.io.InputStream
 
 @Composable
 fun PublishProductScreen(
     onPublish: (String, String, String, Double, Double, Int, Int, String, Int) -> Unit,
     onBack: () -> Unit,
-    isLoading: Boolean = false
+    isLoading: Boolean = false,
+    storeAddress: String = "" // Dirección de la bodega desde el perfil
 ) {
     var name by remember { mutableStateOf("") }
     var normalPrice by remember { mutableStateOf("") }
     var groupPrice by remember { mutableStateOf("") }
     var targetUnits by remember { mutableStateOf("") }
-    var duration by remember { mutableStateOf("12") }
+    var duration by remember { mutableStateOf("24") } // Por defecto 24h
+    var imageUri by remember { mutableStateOf<Uri?>(null) }
     var imageUrl by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf<String?>(null) }
     var normalPriceError by remember { mutableStateOf<String?>(null) }
     var groupPriceError by remember { mutableStateOf<String?>(null) }
     var targetUnitsError by remember { mutableStateOf<String?>(null) }
+    var showImagePickerDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
-    val randomImages = listOf(
-        "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400",
-        "https://images.unsplash.com/photo-1563636619-e9143da7973b?w=400",
-        "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400"
-    )
+    // Launcher para galería
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            imageUri = it
+            imageUrl = it.toString()
+        }
+    }
+
+    // Launcher para cámara
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && imageUri != null) {
+            // La imagen ya está guardada en imageUri
+            imageUrl = imageUri.toString()
+        }
+    }
 
     fun validateForm(): Boolean {
         var isValid = true
@@ -149,16 +181,19 @@ fun PublishProductScreen(
             group != null && group > 0 &&
             Validators.isValidGroupPrice(group, normal) &&
             target != null && target >= 1 &&
-            durationHours > 0
+            durationHours > 0 &&
+            imageUri != null // Requiere que se haya seleccionado una imagen
     }
 
     fun publish() {
-        if (validateForm()) {
+        if (validateForm() && imageUri != null) {
             val normal = normalPrice.toDoubleOrNull() ?: 0.0
             val group = groupPrice.toDoubleOrNull() ?: 0.0
             val target = targetUnits.toIntOrNull() ?: 0
             val durationHours = duration.toIntOrNull() ?: 12
-            onPublish(name, imageUrl, "General", normal, group, target, target, imageUrl, durationHours)
+            // Usar la URI de la imagen seleccionada
+            val finalImageUrl = imageUri.toString()
+            onPublish(name, finalImageUrl, "General", normal, group, target, target, finalImageUrl, durationHours)
         }
     }
 
@@ -223,18 +258,18 @@ fun PublishProductScreen(
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color.White)
                             .clickable {
-                                imageUrl = randomImages[Random.nextInt(randomImages.size)]
+                                showImagePickerDialog = true
                             }
                             .border(
                                 BorderStroke(
                                     width = 2.dp,
-                                    color = Color(if (imageUrl.isBlank()) 0xFFF4F4F7 else 0xFF10B981)
+                                    color = Color(if (imageUri == null) 0xFFF4F4F7 else 0xFF10B981)
                                 ),
                                 RoundedCornerShape(16.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (imageUrl.isBlank()) {
+                        if (imageUri == null) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -272,7 +307,7 @@ fun PublishProductScreen(
                             }
                         } else {
                             AsyncImage(
-                                model = imageUrl,
+                                model = imageUri,
                                 contentDescription = "Foto del producto",
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -479,7 +514,7 @@ fun PublishProductScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Av. Principal 123, San Isidro",
+                                text = if (storeAddress.isNotEmpty()) storeAddress else "No hay dirección configurada",
                                 fontSize = 14.sp,
                                 color = Color(0xFF606060)
                             )
@@ -494,6 +529,65 @@ fun PublishProductScreen(
 
                 Spacer(modifier = Modifier.height(128.dp))
             }
+        }
+
+        // Dialog para seleccionar fuente de imagen
+        if (showImagePickerDialog) {
+            AlertDialog(
+                onDismissRequest = { showImagePickerDialog = false },
+                title = { Text("Seleccionar foto") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Elige de dónde quieres tomar la foto del producto")
+                    }
+                },
+                confirmButton = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                showImagePickerDialog = false
+                                galleryLauncher.launch("image/*")
+                            }
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null)
+                                Text("Galería")
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showImagePickerDialog = false
+                                // Crear archivo temporal para la foto
+                                try {
+                                    val photoFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "product_photo_${System.currentTimeMillis()}.jpg")
+                                    val photoUri = Uri.fromFile(photoFile)
+                                    imageUri = photoUri
+                                    cameraLauncher.launch(photoUri)
+                                } catch (e: Exception) {
+                                    // Si falla, usar galería como alternativa
+                                    galleryLauncher.launch("image/*")
+                                }
+                            }
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                                Text("Cámara")
+                            }
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showImagePickerDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
         }
 
         // Fixed Bottom Button - con borde superior

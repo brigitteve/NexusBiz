@@ -2,7 +2,9 @@ package com.nexusbiz.nexusbiz.data.repository
 
 import android.util.Log
 import com.nexusbiz.nexusbiz.data.model.Store
+import com.nexusbiz.nexusbiz.data.model.StorePlan
 import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
+import com.nexusbiz.nexusbiz.data.remote.model.Store as RemoteStore
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -41,7 +43,8 @@ class StoreRepository {
                             eq("has_stock", true)
                         }
                     }
-                    .decodeList<Store>()
+                    .decodeList<RemoteStore>()
+                    .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
             } else {
                 emptyList()
             }
@@ -111,7 +114,8 @@ class StoreRepository {
                 .select {
                     filter { eq("id", storeId) }
                 }
-                .decodeSingleOrNull<Store>()
+                .decodeSingleOrNull<RemoteStore>()
+                ?.let { mapRemoteStoreToStore(it) }
         } catch (e: IllegalStateException) {
             Log.e("StoreRepository", "Supabase no inicializado", e)
             null
@@ -161,5 +165,32 @@ class StoreRepository {
                 Math.sin(dLon / 2) * Math.sin(dLon / 2)
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         return earthRadius * c
+    }
+    
+    private fun mapRemoteStoreToStore(remoteStore: RemoteStore): Store {
+        val plan = when (remoteStore.plan) {
+            "PRO" -> StorePlan.PRO
+            else -> StorePlan.FREE
+        }
+        return Store(
+            id = remoteStore.id,
+            name = remoteStore.name,
+            address = remoteStore.address,
+            district = remoteStore.district,
+            latitude = remoteStore.latitude,
+            longitude = remoteStore.longitude,
+            phone = remoteStore.phone,
+            imageUrl = remoteStore.imageUrl,
+            hasStock = remoteStore.hasStock,
+            ownerId = remoteStore.ownerId,
+            rating = remoteStore.rating.takeIf { it > 0 },
+            totalSales = remoteStore.totalSales,
+            ruc = remoteStore.ruc,
+            commercialName = remoteStore.commercialName,
+            ownerAlias = remoteStore.ownerAlias,
+            plan = plan,
+            createdAt = remoteStore.createdAt,
+            updatedAt = remoteStore.updatedAt
+        )
     }
 }
