@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.data.model.StorePlan
+import com.nexusbiz.nexusbiz.data.model.Group
 import java.text.NumberFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -35,7 +36,8 @@ import kotlin.math.roundToInt
 fun ProductCard(
     product: Product,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activeGroup: Group? = null // Grupo activo para mostrar datos reales
 ) {
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale("es", "PE"))
     val discountPercent = if (product.normalPrice > 0.0) {
@@ -43,9 +45,28 @@ fun ProductCard(
     } else {
         0
     }
-    val progressValue = 0.68f
-    val currentMembers = (product.minGroupSize * progressValue).roundToInt().coerceAtMost(product.minGroupSize)
-    val remainingUnits = (product.minGroupSize - currentMembers).coerceAtLeast(0)
+    
+    // Usar datos reales del grupo si existe, sino usar valores por defecto
+    val targetUnits = activeGroup?.targetSize ?: product.minGroupSize
+    val currentUnits = activeGroup?.currentSize ?: 0
+    val progressValue = if (targetUnits > 0) (currentUnits.toFloat() / targetUnits).coerceIn(0f, 1f) else 0f
+    val remainingUnits = (targetUnits - currentUnits).coerceAtLeast(0)
+    
+    // Calcular tiempo restante usando el tiempo real del grupo
+    val timeRemaining = activeGroup?.let { group ->
+        // Usar timeRemaining del grupo que ya calcula correctamente expiresAt - ahora
+        group.timeRemaining
+    } ?: 0L
+    
+    val hoursRemaining = (timeRemaining / (1000 * 60 * 60)).toInt()
+    val minutesRemaining = ((timeRemaining % (1000 * 60 * 60)) / (1000 * 60)).toInt()
+    val timeText = if (timeRemaining > 0 && activeGroup != null) {
+        if (hoursRemaining > 0) "${hoursRemaining}h ${minutesRemaining}m" else "${minutesRemaining}m"
+    } else if (activeGroup != null) {
+        "Expirado"
+    } else {
+        "Sin oferta activa"
+    }
 
     val isPro = product.storePlan == StorePlan.PRO
     
@@ -201,7 +222,7 @@ fun ProductCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "$currentMembers/${product.minGroupSize} unidades",
+                        text = "$currentUnits/$targetUnits unidades",
                         color = Color(0xFF6B7280),
                         fontSize = 12.sp
                     )
@@ -232,8 +253,8 @@ fun ProductCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "5h 59m",
-                        color = Color(0xFF6B7280),
+                        text = timeText,
+                        color = if (timeRemaining > 0) Color(0xFF6B7280) else Color(0xFFDC2626),
                         fontSize = 12.sp
                     )
                 }

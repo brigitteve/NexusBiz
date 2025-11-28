@@ -44,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -105,8 +106,17 @@ fun ProductDetailScreen(
     }
 
     var quantity by rememberSaveable { mutableStateOf(1) }
-    val level = remember(user) { resolveLevel(user?.points ?: 0) }
-    val maxQuantity = remember(level) { maxUnitsForLevel(level) }
+    // Usar tier del usuario o calcularlo desde puntos
+    val userTier = remember(user) { 
+        user?.tier ?: user?.calculateTier() ?: com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+    }
+    val maxQuantity = remember(userTier) { 
+        when (userTier) {
+            com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> 2
+            com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> 4
+            com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> 6
+        }
+    }
 
     LaunchedEffect(maxQuantity) {
         if (quantity > maxQuantity) quantity = maxQuantity
@@ -291,12 +301,42 @@ fun ProductDetailScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(
-                            text = "¿Cuántas unidades deseas reservar?",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1A1A1A)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "¿Cuántas unidades deseas reservar?",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1A1A1A)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = when (userTier) {
+                                    com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFFCD7F32).copy(alpha = 0.15f)
+                                    com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFFC0C0C0).copy(alpha = 0.15f)
+                                    com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFFACC15).copy(alpha = 0.15f)
+                                }
+                            ) {
+                                Text(
+                                    text = when (userTier) {
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> "Bronce (máx. $maxQuantity)"
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> "Plata (máx. $maxQuantity)"
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> "Oro (máx. $maxQuantity)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = when (userTier) {
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFF8B4513)
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFF696969)
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFB8860B)
+                                    },
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -348,7 +388,11 @@ fun ProductDetailScreen(
                         }
 
                         Text(
-                            text = "Nivel $level: máx. $maxQuantity unidades por oferta",
+                            text = "Nivel ${when (userTier) {
+                                com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> "Bronce"
+                                com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> "Plata"
+                                com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> "Oro"
+                            }}: máx. $maxQuantity unidades por oferta",
                             style = MaterialTheme.typography.bodySmall,
                             color = mutedTextColor,
                             textAlign = TextAlign.Center,
@@ -645,20 +689,3 @@ fun ProductDetailScreen(
     }
 }
 
-private fun resolveLevel(points: Int): String {
-    return when {
-        points >= 1000 -> "Élite"
-        points >= 500 -> "Oro"
-        points >= 200 -> "Plata"
-        else -> "Bronce"
-    }
-}
-
-private fun maxUnitsForLevel(level: String): Int {
-    return when (level) {
-        "Élite" -> 5
-        "Oro" -> 4
-        "Plata" -> 3
-        else -> 2
-    }
-}

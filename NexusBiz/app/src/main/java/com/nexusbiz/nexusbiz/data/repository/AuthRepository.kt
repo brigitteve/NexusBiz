@@ -291,6 +291,81 @@ class AuthRepository {
         _currentUser.value = null
     }
     
+    /**
+     * Agrega puntos al usuario y actualiza el tier si es necesario
+     */
+    suspend fun addPoints(userId: String, pointsToAdd: Int, reason: String = ""): Result<Int> {
+        return try {
+            // Obtener usuario actual
+            val currentUser = _currentUser.value
+            if (currentUser == null || currentUser.id != userId) {
+                // Si no está en memoria, obtenerlo de la BD
+                val user = supabase.from("usuarios")
+                    .select {
+                        filter { eq("id", userId) }
+                    }
+                    .decodeSingleOrNull<User>()
+                
+                if (user == null) {
+                    return Result.failure(Exception("Usuario no encontrado"))
+                }
+                
+                val newPoints = user.points + pointsToAdd
+                val newTier = when {
+                    newPoints >= 200 -> com.nexusbiz.nexusbiz.data.model.UserTier.GOLD
+                    newPoints >= 100 -> com.nexusbiz.nexusbiz.data.model.UserTier.SILVER
+                    else -> com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+                }
+                
+                // Actualizar en BD
+                supabase.from("usuarios")
+                    .update(mapOf(
+                        "points" to newPoints,
+                        "tier" to newTier.name
+                    )) {
+                        filter { eq("id", userId) }
+                    }
+                
+                // Actualizar usuario en memoria si existe
+                _currentUser.value = user.copy(
+                    points = newPoints,
+                    tier = newTier
+                )
+                
+                Log.d("AuthRepository", "Puntos agregados: +$pointsToAdd ($reason). Total: $newPoints")
+                Result.success(newPoints)
+            } else {
+                val newPoints = currentUser.points + pointsToAdd
+                val newTier = when {
+                    newPoints >= 200 -> com.nexusbiz.nexusbiz.data.model.UserTier.GOLD
+                    newPoints >= 100 -> com.nexusbiz.nexusbiz.data.model.UserTier.SILVER
+                    else -> com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+                }
+                
+                // Actualizar en BD
+                supabase.from("usuarios")
+                    .update(mapOf(
+                        "points" to newPoints,
+                        "tier" to newTier.name
+                    )) {
+                        filter { eq("id", userId) }
+                    }
+                
+                // Actualizar usuario en memoria
+                _currentUser.value = currentUser.copy(
+                    points = newPoints,
+                    tier = newTier
+                )
+                
+                Log.d("AuthRepository", "Puntos agregados: +$pointsToAdd ($reason). Total: $newPoints")
+                Result.success(newPoints)
+            }
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al agregar puntos: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
     suspend fun updateProfile(user: User): Result<User> {
         return try {
             supabase.from("usuarios")

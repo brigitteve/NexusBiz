@@ -256,19 +256,17 @@ class GroupRepository {
                 return Result.failure(Exception("Debes reservar al menos 1 unidad"))
             }
             
-            // Validar límite por membresía
+            // Validar límite por tier (nuevo sistema: Bronce: 2, Plata: 4, Oro: 6+)
             val maxUnits = when {
-                userPoints >= 1000 -> 5 // Élite
-                userPoints >= 500 -> 4  // Oro
-                userPoints >= 200 -> 3  // Plata
+                userPoints >= 200 -> 6  // Oro
+                userPoints >= 100 -> 4  // Plata
                 else -> 2               // Bronce
             }
             
             if (quantity > maxUnits) {
                 val levelName = when {
-                    userPoints >= 1000 -> "Élite"
-                    userPoints >= 500 -> "Oro"
-                    userPoints >= 200 -> "Plata"
+                    userPoints >= 200 -> "Oro"
+                    userPoints >= 100 -> "Plata"
                     else -> "Bronce"
                 }
                 return Result.failure(Exception("Tu nivel $levelName permite máximo $maxUnits unidades por oferta"))
@@ -327,6 +325,7 @@ class GroupRepository {
             
             val nowIso = longToTimestamp(System.currentTimeMillis())
             val existingUnits = existingParticipant?.let { jsonInt(it, "reserved_units") }?.takeIf { it > 0 } ?: 0
+            val isFirstTime = existingParticipant == null // Es primera vez si no existe participante previo
             
             if (existingParticipant != null) {
                 val participantId = jsonString(existingParticipant, "id")
@@ -507,8 +506,9 @@ class GroupRepository {
     /**
      * Valida un participante específico (usado cuando el bodeguero escanea el QR del cliente)
      * El qrCode debe ser el código del grupo, y luego se busca el participante por userId
+     * Retorna el userId del participante validado para otorgar puntos
      */
-    suspend fun validateParticipantByQR(qrCode: String, userId: String): Result<Unit> {
+    suspend fun validateParticipantByQR(qrCode: String, userId: String): Result<String> {
         return try {
             // Buscar grupo por QR
             val group = getGroupByQr(qrCode) ?: return Result.failure(Exception("QR no encontrado"))
@@ -541,6 +541,7 @@ class GroupRepository {
             }
             
             // Validar el participante (actualiza is_validated y status)
+            // Retornar userId para otorgar puntos
             validateParticipant(participantId)
         } catch (e: IllegalStateException) {
             Log.e("GroupRepository", "Supabase no inicializado", e)
@@ -587,7 +588,7 @@ class GroupRepository {
         }
     }
     
-    suspend fun validateParticipant(participantId: String): Result<Unit> {
+    suspend fun validateParticipant(participantId: String): Result<String> {
         return try {
             // Obtener el participante primero para validar
             val participantData = supabase.from("participantes")
@@ -600,6 +601,7 @@ class GroupRepository {
                 return Result.failure(Exception("Participante no encontrado"))
             }
             
+            val userId = jsonString(participantData, "user_id")
             val groupId = jsonString(participantData, "group_id")
             val group = getGroupById(groupId)
             
@@ -628,7 +630,8 @@ class GroupRepository {
             
             // El trigger check_group_completion actualizará el grupo a VALIDATED
             // cuando todos los participantes tengan status = 'VALIDATED'
-            Result.success(Unit)
+            // Retornar userId para otorgar puntos
+            Result.success(userId)
         } catch (e: IllegalStateException) {
             Log.e("GroupRepository", "Supabase no inicializado", e)
             Result.failure(Exception("Error de conexión. Intenta nuevamente."))

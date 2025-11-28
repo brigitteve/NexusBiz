@@ -10,6 +10,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -73,9 +75,25 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             LaunchedEffect(Unit) {
                 categories = productRepository.getCategories()
             }
+            // Otorgar puntos diarios si corresponde
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            val context = LocalContext.current
+            LaunchedEffect(Unit) {
+                currentUser?.let { user ->
+                    val prefs = context.getSharedPreferences("nexusbiz_prefs", android.content.Context.MODE_PRIVATE)
+                    val lastDailyPointsDate = prefs.getString("last_daily_points_${user.id}", null)
+                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                    
+                    if (lastDailyPointsDate != today) {
+                        authRepository.addPoints(user.id, 5, "Abrir app diario")
+                        prefs.edit().putString("last_daily_points_${user.id}", today).apply()
+                    }
+                }
+            }
             HomeScreen(
                 district = "Trujillo",
                 products = appUiState.products,
+                groups = appUiState.groups,
                 categories = categories,
                 onProductClick = { productId ->
                     navController.navigate(Screen.ProductDetail.createRoute(productId))
@@ -159,8 +177,12 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     // Refrescar grupos del usuario actual
                     currentUser?.let { appViewModel.fetchGroups(it.id) }
                     // Buscar y refrescar grupo activo para este producto
+                    // Verificar tiempo real usando expiresAt
+                    val now = System.currentTimeMillis()
                     appUiState.groups.firstOrNull { 
-                        it.productId == productId && it.status == GroupStatus.ACTIVE && !it.isExpired 
+                        it.productId == productId && 
+                        it.status == GroupStatus.ACTIVE && 
+                        it.expiresAt > now // Verificar tiempo real
                     }?.let { appViewModel.fetchGroupById(it.id) }
                     kotlinx.coroutines.delay(10000) // Refrescar cada 10 segundos
                 }
@@ -168,10 +190,12 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val product = appUiState.products.firstOrNull { it.id == productId }
             // Mostrar grupos activos que no hayan expirado
             // Los grupos creados por bodegueros pueden no tener participantes aún, pero deben ser visibles
+            // Verificar tiempo real usando expiresAt
+            val now = System.currentTimeMillis()
             val activeGroup = appUiState.groups.firstOrNull {
                 it.productId == productId && 
                 it.status == GroupStatus.ACTIVE && 
-                !it.isExpired
+                it.expiresAt > now // Verificar tiempo real, no solo isExpired
             }
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
@@ -215,7 +239,27 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                                         quantity,
                                         user.points
                                     )
-                                    result.onSuccess {
+                                    result.onSuccess { updatedGroup ->
+                                        // Verificar si es la primera vez que el usuario se une a este grupo
+                                        val isFirstTime = updatedGroup.participants.none { 
+                                            it.userId == user.id && it.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED 
+                                        } || updatedGroup.participants.count { it.userId == user.id } == 1
+                                        
+                                        // Solo otorgar puntos si es la primera vez
+                                        if (isFirstTime) {
+                                            authRepository.addPoints(user.id, 5, "Unirse al grupo")
+                                        }
+                                        
+                                        // Verificar si el grupo alcanzó la meta (pasó a PICKUP)
+                                        if (updatedGroup.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+                                            // Otorgar +20 puntos a todos los participantes por completar el grupo
+                                            updatedGroup.participants.forEach { participant ->
+                                                if (participant.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED) {
+                                                    authRepository.addPoints(participant.userId, 20, "Completar grupo")
+                                                }
+                                            }
+                                        }
+                                        
                                         navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
                                     }
                                     result.onFailure { error ->
@@ -232,7 +276,20 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                                         quantity,
                                         user.points
                                     )
-                                    result.onSuccess {
+                                    result.onSuccess { updatedGroup ->
+                                        // Otorgar +5 puntos por unirse al grupo (siempre es primera vez cuando se crea)
+                                        authRepository.addPoints(user.id, 5, "Unirse al grupo")
+                                        
+                                        // Verificar si el grupo alcanzó la meta (pasó a PICKUP)
+                                        if (updatedGroup.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
+                                            // Otorgar +20 puntos a todos los participantes por completar el grupo
+                                            updatedGroup.participants.forEach { participant ->
+                                                if (participant.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED) {
+                                                    authRepository.addPoints(participant.userId, 20, "Completar grupo")
+                                                }
+                                            }
+                                        }
+                                        
                                         navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
                                     }
                                     result.onFailure { error ->
@@ -277,7 +334,9 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                                             quantity,
                                             user.points
                                         ).fold(
-                                            onSuccess = {
+                                            onSuccess = { updatedGroup ->
+                                                // Otorgar +5 puntos por unirse al grupo (siempre es primera vez cuando se crea)
+                                                authRepository.addPoints(user.id, 5, "Unirse al grupo")
                                                 navController.navigate(Screen.ReservationSuccess.createRoute(quantity))
                                             },
                                             onFailure = { error ->
@@ -293,7 +352,22 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                         }
                     }
                 },
-                onShareGroup = { },
+                onShareGroup = {
+                    currentUser?.let { user ->
+                        scope.launch {
+                            // Otorgar +5 puntos por compartir grupo
+                            authRepository.addPoints(user.id, 5, "Compartir grupo")
+                        }
+                    }
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "Únete al grupo \"${product?.name}\" y consigue el precio grupal de S/ ${product?.groupPrice ?: 0.0}."
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Compartir grupo"))
+                },
                 onViewStores = { navController.navigate(Screen.QuickBuy.createRoute(productId)) },
                 onBack = { navController.popBackStack() }
             )

@@ -93,6 +93,7 @@ import kotlinx.coroutines.flow.first
 fun HomeScreen(
     district: String = "Trujillo",
     products: List<Product> = emptyList(),
+    groups: List<com.nexusbiz.nexusbiz.data.model.Group> = emptyList(),
     categories: List<Category> = emptyList(),
     onProductClick: (String) -> Unit,
     onCategoryClick: (String) -> Unit,
@@ -512,12 +513,21 @@ fun HomeScreen(
                         )
                     }
                     items(products) { product ->
+                        // Buscar grupo activo para este producto
+                        // Verificar que el grupo no haya expirado usando el tiempo real
+                        val now = System.currentTimeMillis()
+                        val activeGroup = groups.firstOrNull { 
+                            it.productId == product.id && 
+                            it.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE && 
+                            it.expiresAt > now // Verificar tiempo real, no solo isExpired
+                        }
                         ProductCard(
                             product = product,
                             onClick = { onProductClick(product.id) },
                             modifier = Modifier
                                 .padding(horizontal = 16.dp)
-                                .shadow(2.dp, RoundedCornerShape(16.dp))
+                                .shadow(2.dp, RoundedCornerShape(16.dp)),
+                            activeGroup = activeGroup
                         )
                     }
                 }

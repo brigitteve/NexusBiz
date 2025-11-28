@@ -192,7 +192,7 @@ fun ProfileScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Nivel ${gamification.level}",
+                                    text = "Nivel ${gamification.level} • ${user.points} pts",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
@@ -684,18 +684,17 @@ private fun buildGamification(
     groups: Int,
     streak: Int
 ): GamificationStats {
+    // Usar el nuevo sistema de niveles: Bronce (0-99), Plata (100-199), Oro (200+)
     val level = when {
-        points >= 1000 -> "Élite"
-        points >= 500 -> "Oro"
-        points >= 200 -> "Plata"
+        points >= 200 -> "Oro"
+        points >= 100 -> "Plata"
         else -> "Bronce"
     }
     val nextLevel = when (level) {
         "Bronce" -> 100
         "Plata" -> 200
-        "Oro" -> 500
-        "Élite" -> 1000
-        else -> 200
+        "Oro" -> Int.MAX_VALUE // No hay siguiente nivel después de Oro
+        else -> 100
     }
     return GamificationStats(
         level = level,
@@ -709,11 +708,10 @@ private fun buildGamification(
 
 private fun gradientForLevel(level: String): List<Color> {
     return when (level) {
-        "Bronce" -> listOf(Color(0xFFD57A2C), Color(0xFFB36224))
-        "Plata" -> listOf(Color(0xFFB6B6B6), Color(0xFF8E8E8E))
-        "Oro" -> listOf(Color(0xFFFFD700), Color(0xFFF59E0B))
-        "Élite" -> listOf(Color(0xFF10B981), Color(0xFF059669))
-        else -> listOf(Color(0xFF10B981), Color(0xFF059669))
+        "Bronce" -> listOf(Color(0xFFCD7F32), Color(0xFF8B4513))
+        "Plata" -> listOf(Color(0xFFC0C0C0), Color(0xFF808080))
+        "Oro" -> listOf(Color(0xFFFACC15), Color(0xFFB8860B))
+        else -> listOf(Color(0xFFCD7F32), Color(0xFF8B4513)) // Bronce por defecto
     }
 }
 
