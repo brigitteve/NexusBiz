@@ -91,23 +91,37 @@ class AuthRepository {
             Log.d("AuthRepository", "Intentando login con alias: $alias")
             Log.d("AuthRepository", "Password hash generado (longitud ${passwordHash.length}): ${passwordHash.take(20)}...")
             
-            // CORRECCIÓN: Buscar el usuario por alias y filtrar por user_type = 'CONSUMER'
-            // Esto asegura que solo se obtengan usuarios clientes, no bodegueros
-            val remoteUser = supabase.from("usuarios")
+            // Primero buscar el usuario por alias - usar modelo remoto para decodificar
+            // CORRECCIÓN: Agregar logging detallado para depurar problemas de lectura
+            Log.d("AuthRepository", "Buscando usuario con alias: $alias")
+            val remoteUser = try {
+                supabase.from("usuarios")
                 .select {
-                    filter {
-                        eq("alias", alias)
-                        eq("user_type", "CONSUMER")
-                    }
+                    filter { eq("alias", alias) }
                 }
                 .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Error al decodificar usuario desde Supabase: ${e.message}", e)
+                Log.e("AuthRepository", "Stack trace: ${e.stackTraceToString()}")
+                null
+            }
             
             if (remoteUser == null) {
-                Log.w("AuthRepository", "Usuario con alias '$alias' no encontrado")
+                Log.w("AuthRepository", "Usuario con alias '$alias' no encontrado o error al decodificar")
+                // Intentar obtener el raw JSON para ver qué está devolviendo Supabase
+                try {
+                    val rawData = supabase.from("usuarios")
+                        .select {
+                            filter { eq("alias", alias) }
+                        }
+                    Log.d("AuthRepository", "Datos raw de Supabase para alias '$alias': $rawData")
+                } catch (e: Exception) {
+                    Log.e("AuthRepository", "Error al obtener datos raw: ${e.message}", e)
+                }
                 return Result.failure(Exception("Alias o contraseña incorrectos"))
             }
             
-            Log.d("AuthRepository", "Usuario encontrado: ${remoteUser.id}, tipo: ${remoteUser.userType}, alias: ${remoteUser.alias}, district: ${remoteUser.district}")
+            Log.d("AuthRepository", "Usuario encontrado: id=${remoteUser.id}, tipo=${remoteUser.userType}, alias=${remoteUser.alias}, district=${remoteUser.district}, points=${remoteUser.points}")
             Log.d("AuthRepository", "Password hash en BD (longitud ${remoteUser.passwordHash?.length ?: 0}): ${remoteUser.passwordHash?.take(20)}...")
             
             // Normalizar ambos hashes antes de comparar (por si hay espacios o diferencias de case)
@@ -141,6 +155,30 @@ class AuthRepository {
             }
             
             // Convertir User remoto a User local
+            val gamificationLevel = remoteUser.gamificationLevel?.let {
+                when (it) {
+                    com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.BRONCE -> 
+                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE
+                    com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> 
+                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA
+                    com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> 
+                        com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO
+                }
+            }
+            
+            // Calcular tier basado en gamificationLevel o points
+            val tier = gamificationLevel?.let {
+                when (it) {
+                    com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE -> com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+                    com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA -> com.nexusbiz.nexusbiz.data.model.UserTier.SILVER
+                    com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO -> com.nexusbiz.nexusbiz.data.model.UserTier.GOLD
+                }
+            } ?: when {
+                remoteUser.points >= 300 -> com.nexusbiz.nexusbiz.data.model.UserTier.GOLD
+                remoteUser.points >= 100 -> com.nexusbiz.nexusbiz.data.model.UserTier.SILVER
+                else -> com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+            }
+            
             val localUser = User(
                 id = remoteUser.id,
                 alias = remoteUser.alias.ifBlank { alias },
@@ -152,16 +190,8 @@ class AuthRepository {
                 latitude = remoteUser.latitude,
                 longitude = remoteUser.longitude,
                 points = remoteUser.points,
-                gamificationLevel = remoteUser.gamificationLevel?.let {
-                    when (it) {
-                        com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.BRONCE -> 
-                            com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE
-                        com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> 
-                            com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA
-                        com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> 
-                            com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO
-                    }
-                },
+                tier = tier, // CORRECCIÓN: Establecer tier explícitamente
+                gamificationLevel = gamificationLevel,
                 badges = remoteUser.badges,
                 streak = remoteUser.streak,
                 completedGroups = remoteUser.completedGroups,
@@ -172,6 +202,8 @@ class AuthRepository {
                 },
                 createdAt = remoteUser.createdAt
             )
+            
+            Log.d("AuthRepository", "Usuario mapeado correctamente: id=${localUser.id}, alias=${localUser.alias}, tier=${localUser.tier}, points=${localUser.points}, userType=${localUser.userType}")
             
             Log.d("AuthRepository", "Login exitoso para usuario: ${localUser.id}, alias: ${localUser.alias}, district: ${localUser.district}")
             _currentUser.value = localUser
@@ -350,10 +382,13 @@ class AuthRepository {
             
             val userId = UUID.randomUUID().toString()
             
+            Log.d("AuthRepository", "Registrando nuevo usuario cliente: alias=$alias, distrito=$distrito, userId=$userId")
+            
             // Insertar usuario usando mapa explícito
             // IMPORTANTE: Asegúrate de que la columna fecha_nacimiento existe en Supabase
             // Ejecuta el archivo migration_add_fecha_nacimiento.sql si recibes un error
             // Nota: phone no se incluye porque no existe en el nuevo esquema de la base de datos
+            try {
             supabase.from("usuarios").insert(
                 mapOf(
                     "id" to userId,
@@ -364,16 +399,46 @@ class AuthRepository {
                     "user_type" to "CONSUMER"
                 )
             )
+                Log.d("AuthRepository", "Usuario insertado exitosamente en Supabase: $userId")
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Error al insertar usuario en Supabase: ${e.message}", e)
+                Log.e("AuthRepository", "Stack trace: ${e.stackTraceToString()}")
+                return Result.failure(Exception("Error al registrar usuario: ${e.message}"))
+            }
             
-            // Crear objeto User para el estado local (sin fecha_nacimiento por ahora)
+            // Verificar que el usuario se creó correctamente leyéndolo de vuelta
+            val createdUser = try {
+                supabase.from("usuarios")
+                    .select {
+                        filter { eq("id", userId) }
+                    }
+                    .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Error al verificar usuario creado: ${e.message}", e)
+                null
+            }
+            
+            if (createdUser == null) {
+                Log.e("AuthRepository", "Usuario creado pero no se pudo leer de vuelta desde Supabase")
+                return Result.failure(Exception("Error: Usuario creado pero no se pudo verificar"))
+            }
+            
+            Log.d("AuthRepository", "Usuario verificado en Supabase: id=${createdUser.id}, alias=${createdUser.alias}, user_type=${createdUser.userType}")
+            
+            // Crear objeto User para el estado local
             val user = User(
                 id = userId,
                 alias = alias,
                 passwordHash = passwordHash,
-                fechaNacimiento = fechaNacimiento, // Se mantiene en el objeto local para validación
+                fechaNacimiento = fechaNacimiento,
                 district = distrito,
+                points = createdUser.points,
+                tier = com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE, // Nuevos usuarios empiezan en BRONZE
+                gamificationLevel = com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE,
                 userType = com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
             )
+            
+            Log.d("AuthRepository", "Usuario local creado: id=${user.id}, alias=${user.alias}, tier=${user.tier}")
             _currentUser.value = user
             Result.success(user)
         } catch (e: IllegalStateException) {

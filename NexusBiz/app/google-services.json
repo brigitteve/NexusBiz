@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "665990610926",
+    "project_id": "nexusbiz-c22c4",
+    "storage_bucket": "nexusbiz-c22c4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:665990610926:android:88e38ccbb6e3c00b7c58ff",
+        "android_client_info": {
+          "package_name": "com.nexusbiz.nexusbiz"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA4earceLqH6Tzvk-H8zSylAYIyxQ7POao"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

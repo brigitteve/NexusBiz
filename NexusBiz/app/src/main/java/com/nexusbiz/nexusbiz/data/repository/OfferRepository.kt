@@ -270,12 +270,20 @@ class OfferRepository {
             val expiresAt = now + (durationHours * 60 * 60 * 1000L)
             
             // Crear objeto Offer serializable para la inserción
+            // IMPORTANTE: imageUrl debe ser una URL pública de Supabase Storage
+            // Si es una URI local (content:// o file://), debe subirse primero usando uploadOfferImage()
+            val finalImageUrl = imageUrl.takeIf { 
+                it.isNotBlank() && !it.startsWith("content://") && !it.startsWith("file://")
+            } ?: "https://via.placeholder.com/150"
+            
+            Log.d("OfferRepository", "Creando oferta con imagen: $finalImageUrl")
+            
             val remoteOffer = RemoteOffer(
                 id = offerId,
                 productName = productName,
                 productKey = productName.lowercase().trim(),
                 description = description.takeIf { it.isNotBlank() },
-                imageUrl = imageUrl.takeIf { it.isNotBlank() },
+                imageUrl = finalImageUrl.takeIf { it.isNotBlank() },
                 normalPrice = normalPrice,
                 groupPrice = groupPrice,
                 targetUnits = targetUnits,
@@ -735,31 +743,31 @@ class OfferRepository {
      */
     private fun reservationFromRemote(remote: RemoteReservation): Reservation {
         return Reservation(
-            id = remote.id,
-            offerId = remote.offerId,
-            userId = remote.userId,
-            units = remote.units,
-            totalPrice = remote.totalPrice,
-            levelSnapshot = when (remote.levelSnapshot) {
-                RemoteGamificationLevel.BRONCE -> GamificationLevel.BRONCE
-                RemoteGamificationLevel.PLATA -> GamificationLevel.PLATA
-                RemoteGamificationLevel.ORO -> GamificationLevel.ORO
-            },
-            status = when (remote.status) {
-                ReservationStatusRemote.RESERVED -> ReservationStatus.RESERVED
-                ReservationStatusRemote.VALIDATED -> ReservationStatus.VALIDATED
-                ReservationStatusRemote.EXPIRED -> ReservationStatus.EXPIRED
-                ReservationStatusRemote.CANCELLED -> ReservationStatus.CANCELLED
-            },
-            reservedAt = remote.reservedAt,
-            validatedAt = remote.validatedAt,
-            userAlias = remote.userAlias,
-            userAvatar = remote.userAvatar,
-            productName = remote.productName,
-            productImage = remote.productImage,
-            storeName = remote.storeName,
-            pickupAddress = remote.pickupAddress
-        )
+                    id = remote.id,
+                    offerId = remote.offerId,
+                    userId = remote.userId,
+                    units = remote.units,
+                    totalPrice = remote.totalPrice,
+                    levelSnapshot = when (remote.levelSnapshot) {
+                        RemoteGamificationLevel.BRONCE -> GamificationLevel.BRONCE
+                        RemoteGamificationLevel.PLATA -> GamificationLevel.PLATA
+                        RemoteGamificationLevel.ORO -> GamificationLevel.ORO
+                    },
+                    status = when (remote.status) {
+                        ReservationStatusRemote.RESERVED -> ReservationStatus.RESERVED
+                        ReservationStatusRemote.VALIDATED -> ReservationStatus.VALIDATED
+                        ReservationStatusRemote.EXPIRED -> ReservationStatus.EXPIRED
+                        ReservationStatusRemote.CANCELLED -> ReservationStatus.CANCELLED
+                    },
+                    reservedAt = remote.reservedAt,
+                    validatedAt = remote.validatedAt,
+                    userAlias = remote.userAlias,
+                    userAvatar = remote.userAvatar,
+                    productName = remote.productName,
+                    productImage = remote.productImage,
+                    storeName = remote.storeName,
+                    pickupAddress = remote.pickupAddress
+                )
     }
     
     /**

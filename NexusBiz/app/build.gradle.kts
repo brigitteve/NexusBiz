@@ -5,6 +5,7 @@ plugins {
     kotlin("kapt")
     id("kotlin-parcelize")
     kotlin("plugin.serialization") version "1.9.22"
+    id("com.google.gms.google-services") version "4.4.0"
 }
 
 android {

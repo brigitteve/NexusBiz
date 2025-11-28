@@ -89,8 +89,14 @@ fun ProductCard(
                     .fillMaxWidth()
                     .height(170.dp)
             ) {
+                // CORRECCIÓN: Usar imagen de la oferta si está disponible, sino del producto
+                // La imagen de la oferta es la URL pública de Supabase Storage subida por el bodeguero
+                val imageUrlToShow = activeOffer?.imageUrl?.takeIf { it.isNotBlank() } 
+                    ?: product.imageUrl?.takeIf { it.isNotBlank() } 
+                    ?: "https://via.placeholder.com/300x200"
+                
                 AsyncImage(
-                    model = product.imageUrl?.takeIf { it.isNotBlank() } ?: "https://via.placeholder.com/300x200",
+                    model = imageUrlToShow,
                     contentDescription = product.name,
                     modifier = Modifier
                         .fillMaxSize()
