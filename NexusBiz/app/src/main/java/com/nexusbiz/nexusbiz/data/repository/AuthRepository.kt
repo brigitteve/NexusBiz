@@ -91,10 +91,14 @@ class AuthRepository {
             Log.d("AuthRepository", "Intentando login con alias: $alias")
             Log.d("AuthRepository", "Password hash generado (longitud ${passwordHash.length}): ${passwordHash.take(20)}...")
             
-            // Primero buscar el usuario por alias - usar modelo remoto para decodificar
+            // CORRECCIÓN: Buscar el usuario por alias y filtrar por user_type = 'CONSUMER'
+            // Esto asegura que solo se obtengan usuarios clientes, no bodegueros
             val remoteUser = supabase.from("usuarios")
                 .select {
-                    filter { eq("alias", alias) }
+                    filter {
+                        eq("alias", alias)
+                        eq("user_type", "CONSUMER")
+                    }
                 }
                 .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
             
