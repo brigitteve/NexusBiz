@@ -1,5 +1,7 @@
 package com.nexusbiz.nexusbiz.data.repository
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.nexusbiz.nexusbiz.data.model.Offer
 import com.nexusbiz.nexusbiz.data.model.OfferStatus
@@ -7,6 +9,7 @@ import com.nexusbiz.nexusbiz.data.model.Reservation
 import com.nexusbiz.nexusbiz.data.model.ReservationStatus
 import com.nexusbiz.nexusbiz.data.model.GamificationLevel
 import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
+import com.nexusbiz.nexusbiz.data.remote.SupabaseStorage
 import com.nexusbiz.nexusbiz.data.remote.model.Offer as RemoteOffer
 import com.nexusbiz.nexusbiz.data.remote.model.Reservation as RemoteReservation
 import com.nexusbiz.nexusbiz.data.remote.model.OfferStatus as RemoteOfferStatus
@@ -27,11 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.UUID
-import android.net.Uri
-import android.content.Context
-import java.io.InputStream
-import io.github.jan.supabase.storage.storage
-import io.github.jan.supabase.storage.upload
 
 /**
  * Repositorio que maneja ofertas y reservas, integrado con Supabase Realtime.
@@ -102,6 +100,28 @@ class OfferRepository {
             updatedAt = remote.updatedAt
         )
     }
+
+    /**
+     * Sube la imagen de una oferta a Supabase Storage y devuelve la URL pública.
+     *
+     * @param context Contexto necesario para leer el archivo desde la URI local
+     * @param imageUri URI local de la imagen (content:// o file://)
+     * @param offerId ID de la oferta para nombrar el archivo de forma determinista
+     */
+    suspend fun uploadOfferImage(
+        context: Context,
+        imageUri: Uri,
+        offerId: String
+    ): String? {
+        return SupabaseStorage.uploadPublicImage(
+            context = context,
+            imageUri = imageUri,
+            pathBuilder = { extension ->
+                // Guardar imágenes de ofertas en una carpeta dedicada
+                "offers/$offerId.$extension"
+            }
+        )
+    }
     
     suspend fun fetchAllActiveOffers(district: String? = null): List<Offer> {
         return try {
@@ -168,74 +188,6 @@ class OfferRepository {
         }
     }
     
-    /**
-     * Sube una imagen a Supabase Storage y retorna la URL pública.
-     * 
-     * @param context Contexto de Android para leer el archivo desde la URI
-     * @param imageUri URI local de la imagen (content:// o file://)
-     * @param offerId ID de la oferta para nombrar el archivo
-     * @return URL pública de la imagen subida, o null si hay error
-     */
-    suspend fun uploadOfferImage(context: Context, imageUri: Uri, offerId: String): String? {
-        return try {
-            Log.d("OfferRepository", "Subiendo imagen a Supabase Storage: $imageUri")
-            
-            // Leer el archivo desde la URI
-            val inputStream: InputStream? = context.contentResolver.openInputStream(imageUri)
-            if (inputStream == null) {
-                Log.e("OfferRepository", "No se pudo abrir el archivo desde la URI: $imageUri")
-                return null
-            }
-            
-            // Leer los bytes del archivo
-            val bytes = inputStream.readBytes()
-            inputStream.close()
-            
-            // Obtener la extensión del archivo desde la URI
-            val mimeType = context.contentResolver.getType(imageUri) ?: "image/jpeg"
-            val extension = when {
-                mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
-                mimeType.contains("png") -> "png"
-                mimeType.contains("webp") -> "webp"
-                else -> "jpg"
-            }
-            
-            // Nombre del archivo: ofertas/{offerId}.{extension}
-            val fileName = "ofertas/${offerId}.${extension}"
-            
-            // Subir a Supabase Storage (bucket: "product-images" o "public")
-            val bucketName = "product-images" // Cambiar si el bucket tiene otro nombre
-            
-            try {
-                supabase.storage.from(bucketName).upload(fileName, bytes, upsert = true)
-                Log.d("OfferRepository", "Imagen subida exitosamente: $fileName")
-            } catch (e: Exception) {
-                // Si el bucket no existe, intentar con "public"
-                Log.w("OfferRepository", "Error al subir a bucket '$bucketName', intentando con 'public': ${e.message}")
-                try {
-                    supabase.storage.from("public").upload(fileName, bytes, upsert = true)
-                    Log.d("OfferRepository", "Imagen subida exitosamente a bucket 'public': $fileName")
-                } catch (e2: Exception) {
-                    Log.e("OfferRepository", "Error al subir imagen: ${e2.message}", e2)
-                    return null
-                }
-            }
-            
-            // Construir la URL pública manualmente
-            // Formato: {supabaseUrl}/storage/v1/object/public/{bucketName}/{filePath}
-            val supabaseUrl = com.nexusbiz.nexusbiz.data.remote.SupabaseManager.supabaseUrl
-            val finalBucketName = bucketName // Ya sabemos que el bucket existe porque la subida fue exitosa
-            
-            val publicUrl = "$supabaseUrl/storage/v1/object/public/$finalBucketName/$fileName"
-            
-            Log.d("OfferRepository", "URL pública de la imagen: $publicUrl")
-            publicUrl
-        } catch (e: Exception) {
-            Log.e("OfferRepository", "Error al subir imagen: ${e.message}", e)
-            null
-        }
-    }
-    
     suspend fun createOffer(
         productName: String,
         description: String,
@@ -251,6 +203,29 @@ class OfferRepository {
         latitude: Double? = null,
         longitude: Double? = null
     ): Result<Offer> {
+        @Serializable
+        data class OfferInsert(
+            @SerialName("id") val id: String,
+            @SerialName("product_name") val productName: String,
+            @SerialName("product_key") val productKey: String,
+            @SerialName("description") val description: String? = null,
+            @SerialName("image_url") val imageUrl: String? = null,
+            @SerialName("normal_price") val normalPrice: Double,
+            @SerialName("group_price") val groupPrice: Double,
+            @SerialName("target_units") val targetUnits: Int,
+            @SerialName("reserved_units") val reservedUnits: Int = 0,
+            @SerialName("validated_units") val validatedUnits: Int = 0,
+            @SerialName("store_id") val storeId: String,
+            @SerialName("store_name") val storeName: String,
+            @SerialName("district") val district: String,
+            @SerialName("latitude") val latitude: Double? = null,
+            @SerialName("longitude") val longitude: Double? = null,
+            @SerialName("pickup_address") val pickupAddress: String,
+            @SerialName("status") val status: RemoteOfferStatus,
+            @SerialName("duration_hours") val durationHours: Int,
+            @SerialName("expires_at") val expiresAt: String
+        )
+        
         return try {
             if (targetUnits < 1) {
                 return Result.failure(Exception("La meta debe ser al menos 1 unidad"))
@@ -269,21 +244,14 @@ class OfferRepository {
             val now = System.currentTimeMillis()
             val expiresAt = now + (durationHours * 60 * 60 * 1000L)
             
-            // Crear objeto Offer serializable para la inserción
-            // IMPORTANTE: imageUrl debe ser una URL pública de Supabase Storage
-            // Si es una URI local (content:// o file://), debe subirse primero usando uploadOfferImage()
-            val finalImageUrl = imageUrl.takeIf { 
-                it.isNotBlank() && !it.startsWith("content://") && !it.startsWith("file://")
-            } ?: "https://via.placeholder.com/150"
-            
-            Log.d("OfferRepository", "Creando oferta con imagen: $finalImageUrl")
-            
-            val remoteOffer = RemoteOffer(
+            // Crear objeto OfferInsert serializable para la inserción
+            // Usamos una clase específica para garantizar que "target_units" SIEMPRE se envíe a Supabase
+            val offerInsert = OfferInsert(
                 id = offerId,
                 productName = productName,
                 productKey = productName.lowercase().trim(),
                 description = description.takeIf { it.isNotBlank() },
-                imageUrl = finalImageUrl.takeIf { it.isNotBlank() },
+                imageUrl = imageUrl.takeIf { it.isNotBlank() },
                 normalPrice = normalPrice,
                 groupPrice = groupPrice,
                 targetUnits = targetUnits,
@@ -297,13 +265,11 @@ class OfferRepository {
                 pickupAddress = pickupAddress,
                 status = RemoteOfferStatus.ACTIVE,
                 durationHours = durationHours,
-                createdAt = null, // Se establece automáticamente en BD
-                expiresAt = longToTimestamp(expiresAt),
-                updatedAt = null // Se establece automáticamente en BD
+                expiresAt = longToTimestamp(expiresAt)
             )
             
-            Log.d("OfferRepository", "Creando oferta: $offerId")
-            supabase.from("ofertas").insert(remoteOffer)
+            Log.d("OfferRepository", "Creando oferta: $offerId con target_units=$targetUnits")
+            supabase.from("ofertas").insert(offerInsert)
             
             val offer = getOfferById(offerId)
             if (offer != null) {
@@ -673,6 +639,12 @@ class OfferRepository {
             }
             
             Result.success(reservation.userId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Esta excepción ocurre cuando el scope de Compose (rememberCoroutineScope) sale de composición.
+            // No es un error real de Supabase, así que la propagamos para que se cancele la corrutina
+            // sin mostrar un mensaje de error al usuario.
+            Log.d("OfferRepository", "Validación de reserva cancelada (scope de Compose destruido): ${e.message}")
+            throw e
         } catch (e: Exception) {
             Log.e("OfferRepository", "Error al validar reserva desde bodega: ${e.message}", e)
             Result.failure(e)
@@ -743,31 +715,31 @@ class OfferRepository {
      */
     private fun reservationFromRemote(remote: RemoteReservation): Reservation {
         return Reservation(
-                    id = remote.id,
-                    offerId = remote.offerId,
-                    userId = remote.userId,
-                    units = remote.units,
-                    totalPrice = remote.totalPrice,
-                    levelSnapshot = when (remote.levelSnapshot) {
-                        RemoteGamificationLevel.BRONCE -> GamificationLevel.BRONCE
-                        RemoteGamificationLevel.PLATA -> GamificationLevel.PLATA
-                        RemoteGamificationLevel.ORO -> GamificationLevel.ORO
-                    },
-                    status = when (remote.status) {
-                        ReservationStatusRemote.RESERVED -> ReservationStatus.RESERVED
-                        ReservationStatusRemote.VALIDATED -> ReservationStatus.VALIDATED
-                        ReservationStatusRemote.EXPIRED -> ReservationStatus.EXPIRED
-                        ReservationStatusRemote.CANCELLED -> ReservationStatus.CANCELLED
-                    },
-                    reservedAt = remote.reservedAt,
-                    validatedAt = remote.validatedAt,
-                    userAlias = remote.userAlias,
-                    userAvatar = remote.userAvatar,
-                    productName = remote.productName,
-                    productImage = remote.productImage,
-                    storeName = remote.storeName,
-                    pickupAddress = remote.pickupAddress
-                )
+            id = remote.id,
+            offerId = remote.offerId,
+            userId = remote.userId,
+            units = remote.units,
+            totalPrice = remote.totalPrice,
+            levelSnapshot = when (remote.levelSnapshot) {
+                RemoteGamificationLevel.BRONCE -> GamificationLevel.BRONCE
+                RemoteGamificationLevel.PLATA -> GamificationLevel.PLATA
+                RemoteGamificationLevel.ORO -> GamificationLevel.ORO
+            },
+            status = when (remote.status) {
+                ReservationStatusRemote.RESERVED -> ReservationStatus.RESERVED
+                ReservationStatusRemote.VALIDATED -> ReservationStatus.VALIDATED
+                ReservationStatusRemote.EXPIRED -> ReservationStatus.EXPIRED
+                ReservationStatusRemote.CANCELLED -> ReservationStatus.CANCELLED
+            },
+            reservedAt = remote.reservedAt,
+            validatedAt = remote.validatedAt,
+            userAlias = remote.userAlias,
+            userAvatar = remote.userAvatar,
+            productName = remote.productName,
+            productImage = remote.productImage,
+            storeName = remote.storeName,
+            pickupAddress = remote.pickupAddress
+        )
     }
     
     /**

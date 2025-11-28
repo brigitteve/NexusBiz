@@ -13,19 +13,19 @@ import kotlinx.serialization.json.Json
 object SupabaseManager {
     @Volatile
     private var _client: SupabaseClient? = null
-    
     @Volatile
     private var _supabaseUrl: String? = null
     
     val client: SupabaseClient
         get() = _client ?: throw IllegalStateException("Supabase no ha sido inicializado. Llama a SupabaseManager.init() primero.")
-    
+
     val supabaseUrl: String
-        get() = _supabaseUrl ?: throw IllegalStateException("Supabase no ha sido inicializado. Llama a SupabaseManager.init() primero.")
+        get() = _supabaseUrl
+            ?: throw IllegalStateException("Supabase URL no está disponible. Asegúrate de llamar a SupabaseManager.init() primero.")
 
     fun init(supabaseUrl: String, supabaseKey: String) {
-        _supabaseUrl = supabaseUrl
         try {
+            _supabaseUrl = supabaseUrl
             _client = createSupabaseClient(
                 supabaseUrl = supabaseUrl,
                 supabaseKey = supabaseKey

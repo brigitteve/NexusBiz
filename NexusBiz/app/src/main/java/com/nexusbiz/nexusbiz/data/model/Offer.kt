@@ -16,21 +16,6 @@ data class Offer(
     val productKey: String = "",
     @SerialName("description")
     val description: String? = null,
-    /**
-     * URL de la imagen del producto.
-     * 
-     * Este campo almacena la URL pública de la imagen subida a Supabase Storage.
-     * Formato: {supabaseUrl}/storage/v1/object/public/{bucketName}/ofertas/{offerId}.{extension}
-     * 
-     * Cuando el bodeguero crea una oferta:
-     * 1. Selecciona una imagen desde la galería o cámara (URI local: content:// o file://)
-     * 2. La imagen se sube a Supabase Storage usando uploadOfferImage()
-     * 3. Se obtiene la URL pública de Supabase Storage
-     * 4. Esta URL se guarda en este campo en la base de datos
-     * 5. Los clientes pueden ver la imagen usando esta URL pública
-     * 
-     * Si no se proporciona imagen, se usa un placeholder por defecto.
-     */
     @SerialName("image_url")
     val imageUrl: String? = null,
     @SerialName("normal_price")

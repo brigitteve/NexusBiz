@@ -21,53 +21,54 @@ object Validators {
     
     /**
      * Valida nombres (persona, producto, bodega)
-     * - Permite todos los caracteres
+     * - Solo letras y espacios (tildes incluidas)
      * - Máximo 60 caracteres
      */
     fun isValidName(value: String): Boolean {
         if (value.isBlank() || value.length > 60) return false
-        return true // Permite todos los caracteres
+        return Regex("^[A-Za-zÁÉÍÓÚáéíóúñÑ ]+$").matches(value.trim())
     }
     
     /**
-     * Sanitiza nombre (permite todos los caracteres, máximo 60 caracteres)
+     * Sanitiza nombre (solo letras y espacios, máximo 60 caracteres)
      */
     fun sanitizeName(value: String): String {
-        return value.take(60) // Solo limita la longitud, permite todos los caracteres
+        return value.replace(Regex("[^A-Za-zÁÉÍÓÚáéíóúñÑ ]"), "").take(60)
     }
 
     /**
      * Valida alias de usuario (cliente o bodega)
-     * - Permite todos los caracteres
+     * - Letras, números, puntos, guiones y guiones bajos
+     * - Sin espacios
      * - Máximo 30 caracteres
      */
     fun isValidAlias(value: String): Boolean {
         if (value.isBlank() || value.length > 30) return false
-        return true // Permite todos los caracteres
+        return Regex("^[A-Za-z0-9._-]+$").matches(value)
     }
 
     /**
-     * Sanitiza alias (permite todos los caracteres, máximo 30 caracteres)
+     * Sanitiza alias permitiendo solo letras, números, puntos, guiones y guiones bajos
      */
     fun sanitizeAlias(value: String): String {
-        return value.take(30) // Solo limita la longitud, permite todos los caracteres
+        return value.replace(Regex("[^A-Za-z0-9._-]"), "").take(30)
     }
     
     /**
      * Valida dirección
-     * - Permite todos los caracteres
+     * - Letras, números, espacios, comas y guiones
      * - Mínimo 5 caracteres
      */
     fun isValidAddress(value: String): Boolean {
         if (value.isBlank() || value.length < 5) return false
-        return true // Permite todos los caracteres
+        return Regex("^[A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,-]+$").matches(value.trim())
     }
     
     /**
-     * Sanitiza dirección (permite todos los caracteres)
+     * Sanitiza dirección
      */
     fun sanitizeAddress(value: String): String {
-        return value // Permite todos los caracteres sin sanitizar
+        return value.replace(Regex("[^A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,-]"), "")
     }
     
     /**
@@ -133,9 +134,9 @@ object Validators {
      */
     object ErrorMessages {
         const val INVALID_PHONE = "Número de teléfono inválido"
-        const val INVALID_NAME = "Nombre inválido (máximo 60 caracteres)"
-        const val INVALID_ALIAS = "Alias inválido (máximo 30 caracteres)"
-        const val INVALID_ADDRESS = "Dirección inválida (mínimo 5 caracteres)"
+        const val INVALID_NAME = "Solo se permiten letras"
+        const val INVALID_ALIAS = "Alias inválido (usa letras, números o .-_ )"
+        const val INVALID_ADDRESS = "Dirección inválida"
         const val INVALID_PRICE = "Precio inválido"
         const val INVALID_GROUP_PRICE = "El precio grupal debe ser menor al normal"
         const val INVALID_QUANTITY = "Cantidad inválida (mínimo 1)"

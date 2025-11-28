@@ -7,8 +7,6 @@ import kotlinx.serialization.Serializable
 data class User(
     @SerialName("id")
     val id: String = "",
-    // CORRECCIÓN: phone no existe en el esquema SQL, pero lo mantenemos como nullable
-    // para compatibilidad con versiones anteriores. Se ignora automáticamente si no existe.
     @SerialName("phone")
     val phone: String? = null,
     @SerialName("alias")
@@ -175,21 +173,6 @@ data class Offer(
     val productKey: String = "",
     @SerialName("description")
     val description: String? = null,
-    /**
-     * URL pública de la imagen del producto almacenada en Supabase Storage.
-     * 
-     * Este campo se mapea directamente a la columna 'image_url' en la tabla 'ofertas' de Supabase.
-     * 
-     * Flujo de carga de imagen:
-     * 1. El bodeguero selecciona una imagen (URI local: content:// o file://)
-     * 2. Se llama a uploadOfferImage() que sube la imagen a Supabase Storage
-     * 3. Se obtiene la URL pública: {supabaseUrl}/storage/v1/object/public/{bucket}/ofertas/{offerId}.{ext}
-     * 4. Esta URL se guarda en este campo en la base de datos
-     * 5. Los clientes pueden acceder a la imagen usando esta URL pública
-     * 
-     * Formato esperado: URL HTTP/HTTPS completa de Supabase Storage
-     * Ejemplo: https://hscancddnoqnskjfbjti.supabase.co/storage/v1/object/public/product-images/ofertas/abc123.jpg
-     */
     @SerialName("image_url")
     val imageUrl: String? = null,
     @SerialName("normal_price")

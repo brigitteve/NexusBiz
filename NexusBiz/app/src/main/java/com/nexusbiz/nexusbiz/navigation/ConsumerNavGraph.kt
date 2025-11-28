@@ -205,10 +205,8 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             // Refrescar productos y TODAS las ofertas activas cuando cambia el productId o el usuario
             LaunchedEffect(productId, currentUser?.id, userDistrict) {
                 appViewModel.fetchProducts(userDistrict, null, null)
-                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD, no solo del usuario
+                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD (modo cliente)
                 appViewModel.fetchAllActiveOffers(userDistrict)
-                // También cargar ofertas del usuario para sus reservas
-                currentUser?.let { appViewModel.fetchOffers(it.id) }
             }
             // RealtimeService actualizará automáticamente las ofertas cuando haya cambios
             // No es necesario hacer polling periódico
