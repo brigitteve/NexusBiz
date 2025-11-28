@@ -8,7 +8,7 @@ data class User(
     @SerialName("id")
     val id: String = "",
     @SerialName("phone")
-    val phone: String = "",
+    val phone: String? = null,
     @SerialName("alias")
     val alias: String = "",
     @SerialName("email")
@@ -31,6 +31,8 @@ data class User(
     val userType: UserType = UserType.CONSUMER,
     @SerialName("district")
     val district: String = "",
+    @SerialName("fecha_nacimiento")
+    val fechaNacimiento: String? = null,
     @SerialName("latitude")
     val latitude: Double? = null,
     @SerialName("longitude")

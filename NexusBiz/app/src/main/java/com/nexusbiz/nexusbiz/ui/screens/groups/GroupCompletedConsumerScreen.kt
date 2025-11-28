@@ -66,15 +66,19 @@ fun GroupCompletedConsumerScreen(
     val groupPrice = if (group.groupPrice > 0) group.groupPrice else group.normalPrice
     val normalPrice = if (group.normalPrice > 0) group.normalPrice else groupPrice
     val participantCount = max(1, group.participantCount)
-    val userReservationQuantity = group.activeParticipants
-        .firstOrNull { it.userId == currentUser?.id }
-        ?.reservedUnits
-        ?.coerceAtLeast(0)
-        ?: 0
+    val userParticipant = group.activeParticipants.firstOrNull { it.userId == currentUser?.id }
+    val userReservationQuantity = userParticipant?.reservedUnits?.coerceAtLeast(0) ?: 0
     val savings = max(0.0, (normalPrice - groupPrice) * userReservationQuantity)
     val completedGroupsCount = currentUser?.completedGroups ?: 0
-    val todayFormatted = remember {
-        SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date())
+    
+    // Obtener fecha de retiro del participante (validated_at)
+    val pickupDateFormatted = remember(userParticipant?.validatedAt) {
+        if (userParticipant?.validatedAt != null && userParticipant.validatedAt > 0) {
+            SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date(userParticipant.validatedAt))
+        } else {
+            // Fallback a la fecha actual si no hay validated_at
+            SimpleDateFormat("dd/MM/yyyy", Locale("es", "PE")).format(Date())
+        }
     }
 
     Column(
@@ -205,8 +209,8 @@ fun GroupCompletedConsumerScreen(
                         textAlign = TextAlign.Center
                     )
                     SummaryRow("Producto:", group.productName)
-                    SummaryRow("Unidades retiradas:", "$userReservationQuantity")
-                    SummaryRow("Fecha de retiro:", todayFormatted)
+                    SummaryRow("Cantidad reservada:", "$userReservationQuantity")
+                    SummaryRow("Fecha de retiro:", pickupDateFormatted)
                     Surface(
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                         color = Color(0xFF10B981),

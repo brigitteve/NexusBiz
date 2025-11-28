@@ -62,23 +62,24 @@ class AuthRepository {
             Log.d("AuthRepository", "Intentando login con alias: $alias")
             Log.d("AuthRepository", "Password hash generado (longitud ${passwordHash.length}): ${passwordHash.take(20)}...")
             
-            // Primero buscar el usuario por alias
-            val user = supabase.from("usuarios")
+            // Primero buscar el usuario por alias - usar modelo remoto para decodificar
+            val remoteUser = supabase.from("usuarios")
                 .select {
                     filter { eq("alias", alias) }
                 }
-                .decodeSingleOrNull<User>()
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
             
-            if (user == null) {
+            if (remoteUser == null) {
                 Log.w("AuthRepository", "Usuario con alias '$alias' no encontrado")
                 return Result.failure(Exception("Alias o contraseña incorrectos"))
             }
             
-            Log.d("AuthRepository", "Usuario encontrado: ${user.id}, tipo: ${user.userType}")
-            Log.d("AuthRepository", "Password hash en BD (longitud ${user.passwordHash.length}): ${user.passwordHash.take(20)}...")
+            Log.d("AuthRepository", "Usuario encontrado: ${remoteUser.id}, tipo: ${remoteUser.userType}, alias: ${remoteUser.alias}, district: ${remoteUser.district}")
+            Log.d("AuthRepository", "Password hash en BD (longitud ${remoteUser.passwordHash?.length ?: 0}): ${remoteUser.passwordHash?.take(20)}...")
             
             // Normalizar ambos hashes antes de comparar (por si hay espacios o diferencias de case)
-            val normalizedStoredHash = normalizeHash(user.passwordHash)
+            val storedHash = remoteUser.passwordHash ?: ""
+            val normalizedStoredHash = normalizeHash(storedHash)
             val normalizedGeneratedHash = normalizeHash(passwordHash)
             
             Log.d("AuthRepository", "Hash normalizado generado: $normalizedGeneratedHash")
@@ -88,7 +89,7 @@ class AuthRepository {
             if (normalizedStoredHash != normalizedGeneratedHash) {
                 Log.w("AuthRepository", "Los hashes NO coinciden después de normalizar")
                 Log.d("AuthRepository", "Hash generado completo: $passwordHash")
-                Log.d("AuthRepository", "Hash en BD completo: ${user.passwordHash}")
+                Log.d("AuthRepository", "Hash en BD completo: $storedHash")
                 Log.d("AuthRepository", "Hash generado normalizado completo: $normalizedGeneratedHash")
                 Log.d("AuthRepository", "Hash en BD normalizado completo: $normalizedStoredHash")
                 
@@ -106,9 +107,32 @@ class AuthRepository {
                 return Result.failure(Exception("Alias o contraseña incorrectos"))
             }
             
-            Log.d("AuthRepository", "Login exitoso para usuario: ${user.id}")
-            _currentUser.value = user
-            Result.success(user)
+            // Convertir User remoto a User local
+            val localUser = User(
+                id = remoteUser.id,
+                alias = remoteUser.alias.ifBlank { alias },
+                passwordHash = storedHash,
+                fechaNacimiento = remoteUser.fechaNacimiento ?: "",
+                district = remoteUser.district.ifBlank { "Trujillo" },
+                email = remoteUser.email,
+                avatar = remoteUser.avatar,
+                latitude = remoteUser.latitude,
+                longitude = remoteUser.longitude,
+                points = remoteUser.points,
+                badges = remoteUser.badges,
+                streak = remoteUser.streak,
+                completedGroups = remoteUser.completedGroups,
+                totalSavings = remoteUser.totalSavings,
+                userType = when (remoteUser.userType) {
+                    com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                    com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                },
+                createdAt = remoteUser.createdAt
+            )
+            
+            Log.d("AuthRepository", "Login exitoso para usuario: ${localUser.id}, alias: ${localUser.alias}, district: ${localUser.district}")
+            _currentUser.value = localUser
+            Result.success(localUser)
         } catch (e: IllegalStateException) {
             Log.e("AuthRepository", "Supabase no inicializado", e)
             Result.failure(Exception("Error de conexión. Intenta nuevamente."))

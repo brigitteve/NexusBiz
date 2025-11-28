@@ -444,6 +444,54 @@ class GroupRepository {
     }
     
     /**
+     * Obtiene TODOS los grupos activos (ACTIVE y no expirados) de la base de datos
+     * Usado para mostrar ofertas de todas las bodegas a los clientes
+     * IMPORTANTE: Esta función obtiene grupos de TODAS las bodegas, no solo del usuario
+     */
+    suspend fun fetchAllActiveGroups(): List<Group> {
+        return try {
+            val now = System.currentTimeMillis()
+            Log.d("GroupRepository", "Obteniendo todos los grupos activos de la BD")
+            val groups = supabase.from("grupos")
+                .select {
+                    filter {
+                        eq("status", "ACTIVE")
+                    }
+                }
+                .decodeList<JsonObject>()
+                .mapNotNull { groupFromDB(it) }
+                .filter { group ->
+                    // Filtrar grupos que no han expirado
+                    val isActive = group.expiresAt > now && !group.isExpired
+                    if (isActive) {
+                        Log.d("GroupRepository", "Grupo activo encontrado: ${group.id}, producto: ${group.productId}, current_size: ${group.currentSize}, target_size: ${group.targetSize}")
+                    }
+                    isActive
+                }
+            Log.d("GroupRepository", "Total grupos activos obtenidos: ${groups.size}")
+            // Actualizar el estado con todos los grupos activos
+            val currentGroups = _groups.value.toMutableList()
+            // Actualizar o agregar grupos activos
+            groups.forEach { activeGroup ->
+                val idx = currentGroups.indexOfFirst { it.id == activeGroup.id }
+                if (idx >= 0) {
+                    currentGroups[idx] = activeGroup
+                } else {
+                    currentGroups.add(activeGroup)
+                }
+            }
+            _groups.value = currentGroups
+            groups
+        } catch (e: IllegalStateException) {
+            Log.e("GroupRepository", "Supabase no inicializado", e)
+            emptyList()
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error al obtener todos los grupos activos: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
+    /**
      * Obtiene grupos activos (ACTIVE y no expirados) de una bodega específica
      * Usado para validar límites de ofertas según el plan
      */

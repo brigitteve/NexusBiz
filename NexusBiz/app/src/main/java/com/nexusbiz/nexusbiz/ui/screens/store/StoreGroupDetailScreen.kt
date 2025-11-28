@@ -1,6 +1,5 @@
 package com.nexusbiz.nexusbiz.ui.screens.store
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -55,8 +54,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -69,6 +68,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+
+private val StoreBackground = Color(0xFFF4F4F7)
+private val StoreSurface = Color.White
+private val StoreBorder = Color(0xFFE3E8EF)
+private val StorePrimary = Color(0xFF10B981)
+private val StorePrimaryDark = Color(0xFF059669)
+private val StoreAccentBlue = Color(0xFF3B82F6)
+private val StoreWarning = Color(0xFFFF914D)
+private val StoreDanger = Color(0xFFDC2626)
+private val StoreTitleText = Color(0xFF1A1A1A)
+private val StoreBodyText = Color(0xFF111827)
+private val StoreMutedText = Color(0xFF6B7280)
+private val StoreSubtleText = Color(0xFF9CA3AF)
 
 @Composable
 fun StoreGroupDetailScreen(
@@ -84,15 +96,14 @@ fun StoreGroupDetailScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF4F4F7)),
+                .background(StoreBackground),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = "No se pudo cargar la oferta", color = Color(0xFF606060))
+            Text(text = "No se pudo cargar la oferta", color = StoreMutedText)
         }
         return
     }
 
-    val context = LocalContext.current
     // Usar los participantes proporcionados, o mapear desde el grupo si están vacíos
     // Asegurar que siempre tengamos una lista válida
     val participantList = remember(participants, group.id, group.participants) { 
@@ -136,7 +147,7 @@ private fun StoreGroupScaffold(
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFFF4F4F7)
+        color = StoreBackground
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -144,8 +155,9 @@ private fun StoreGroupScaffold(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White)
-                    .border(BorderStroke(1.dp, Color(0xFFF0F0F2)))
+                    .background(StoreSurface)
+                    .border(BorderStroke(1.dp, StoreBorder)),
+                color = StoreSurface
             ) {
                 Row(
                     modifier = Modifier
@@ -158,15 +170,15 @@ private fun StoreGroupScaffold(
                         onClick = onBack,
                         modifier = Modifier
                             .size(44.dp)
-                            .background(Color(0xFFF4F4F7), CircleShape)
+                            .background(StoreBackground, CircleShape)
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Atrás", tint = Color(0xFF1A1A1A))
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Atrás", tint = StoreTitleText)
                     }
                     Text(
                         text = title,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF1A1A1A)
+                        color = StoreTitleText
                     )
                 }
             }
@@ -195,8 +207,9 @@ private fun GroupHeaderCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = StoreSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, StoreBorder)
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -209,14 +222,14 @@ private fun GroupHeaderCard(
                     modifier = Modifier
                         .size(96.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFFF4F4F7)),
+                        .background(StoreBackground),
                     contentScale = ContentScale.Crop
                 )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = productName, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1A1A1A))
+                    Text(text = productName, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = StoreTitleText)
                     Surface(
                         shape = RoundedCornerShape(999.dp),
                         color = badgeColor
@@ -244,7 +257,6 @@ private fun StoreActiveContent(
     onShare: (Group) -> Unit,
     onScanQR: (() -> Unit)? = null
 ) {
-    val context = LocalContext.current
     val progress = (group.currentSize.toFloat() / max(1, group.targetSize).toFloat()).coerceIn(0f, 1f)
     val progressPercent = (progress * 100).toInt()
     val remaining = group.targetSize - group.currentSize
@@ -263,14 +275,14 @@ private fun StoreActiveContent(
                 else -> "Activo"
             },
             badgeColor = when (group.status) {
-                com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> Color(0xFF059669).copy(alpha = 0.15f)
-                com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> Color(0xFF3B82F6).copy(alpha = 0.15f)
-                else -> Color(0xFF059669).copy(alpha = 0.15f)
+                com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> StorePrimary.copy(alpha = 0.15f)
+                com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> StoreAccentBlue.copy(alpha = 0.15f)
+                else -> StorePrimary.copy(alpha = 0.15f)
             },
             badgeContent = when (group.status) {
-                com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> Color(0xFF059669)
-                com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> Color(0xFF3B82F6)
-                else -> Color(0xFF059669)
+                com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE -> StorePrimaryDark
+                com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP -> StoreAccentBlue
+                else -> StorePrimaryDark
             },
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -288,33 +300,16 @@ private fun StoreActiveContent(
                         progressPercent = actualProgressPercent,
                         remaining = actualRemaining
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                            .border(BorderStroke(1.dp, Color(0xFFF0F0F2)), RoundedCornerShape(16.dp))
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // Mostrar tiempo transcurrido desde que se creó la oferta
-                        val timeElapsed = formatTimeElapsed(group.createdAt)
-                        val timeRemaining = formatTimeRemaining(group.expiresAt)
-                        InfoPill(
-                            icon = Icons.Default.AccessTime,
-                            label = "Tiempo transcurrido",
-                            value = timeElapsed
+                    val timeElapsed = formatTimeElapsed(group.createdAt)
+                    val timeRemaining = formatTimeRemaining(group.expiresAt)
+                    InfoSummaryCard(
+                        modifier = Modifier.padding(top = 12.dp),
+                        items = listOf(
+                            InfoItem(Icons.Default.AccessTime, "Tiempo transcurrido", timeElapsed),
+                            InfoItem(Icons.Default.AccessTime, "Tiempo restante", timeRemaining),
+                            InfoItem(Icons.Default.People, "Participantes", "${participants.size} personas")
                         )
-                            InfoPill(
-                                icon = Icons.Default.AccessTime,
-                                label = "Tiempo restante",
-                            value = timeRemaining
-                            )
-                        InfoPill(
-                            icon = Icons.Default.People,
-                            label = "Participantes",
-                            value = "${participants.size} personas"
-                        )
-                    }
+                    )
                 }
             }
         )
@@ -413,13 +408,13 @@ private fun StoreCompletedContent(
                         background = Color(0xFFD1FAE5),
                         icon = Icons.Default.CheckCircle,
                         content = "Todos los retiros fueron validados correctamente.",
-                        iconTint = Color(0xFF059669)
+                        iconTint = StorePrimaryDark
                     )
                 } else {
                     InfoBanner(
                         background = Color(0xFFFFF7ED),
                         content = "Pendientes: $pendingUnits unidades",
-                        iconTint = Color(0xFFEA580C)
+                        iconTint = StoreWarning
                     )
                 }
             }
@@ -467,8 +462,8 @@ private fun StoreExpiredContent(
             productName = group.productName,
             imageUrl = group.productImage,
             badgeText = "Expirado",
-            badgeColor = Color(0xFFF5F5F5),
-            badgeContent = Color(0xFF6B7280),
+            badgeColor = StoreBackground,
+            badgeContent = StoreMutedText,
             content = {
                 ExpiredProgressSection(
                     reserved = group.currentSize,
@@ -476,7 +471,7 @@ private fun StoreExpiredContent(
                 )
                 Text(
                     text = "Meta no alcanzada",
-                    color = Color(0xFFDC2626),
+                    color = StoreDanger,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp)
@@ -501,10 +496,10 @@ private fun ProgressSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(text = "Progreso de reservas", color = Color(0xFF6B7280), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+                Text(text = "Progreso de reservas", color = StoreMutedText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = StoreSubtleText, fontSize = 12.sp)
             }
-            Text(text = "$reserved/$total", color = Color(0xFF1F2937), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = "$reserved/$total", color = StoreBodyText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         LinearProgressIndicator(
             progress = progressPercent / 100f,
@@ -512,25 +507,25 @@ private fun ProgressSection(
                 .fillMaxWidth()
                 .height(16.dp)
                 .clip(RoundedCornerShape(16.dp)),
-            color = Color(0xFF10B981),
-            trackColor = Color(0xFFE5E7EB)
+            color = StorePrimary,
+            trackColor = StoreBackground
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-        Text(
+            Text(
                 text = "$progressPercent% completado",
-                color = Color(0xFF10B981),
+                color = StorePrimary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = "Faltan $remaining unidades",
-                color = Color(0xFFFF914D),
+                color = StoreWarning,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
-        )
+            )
         }
     }
 }
@@ -547,8 +542,8 @@ private fun ExpiredProgressSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Progreso del grupo", color = Color(0xFF6B7280), fontSize = 14.sp)
-            Text(text = "$reserved/$total unidades", color = Color(0xFF1F2937), fontSize = 14.sp)
+            Text(text = "Progreso del grupo", color = StoreMutedText, fontSize = 14.sp)
+            Text(text = "$reserved/$total unidades", color = StoreBodyText, fontSize = 14.sp)
         }
         LinearProgressIndicator(
             progress = progress,
@@ -556,42 +551,65 @@ private fun ExpiredProgressSection(
                 .fillMaxWidth()
                 .height(12.dp)
                 .clip(RoundedCornerShape(12.dp)),
-            color = Color(0xFF9CA3AF),
-            trackColor = Color(0xFFE5E7EB)
+            color = StoreBorder,
+            trackColor = StoreBackground
         )
         Text(
             text = "Solo $reserved de $total unidades reservadas",
-            color = Color(0xFF6B7280),
+            color = StoreMutedText,
             fontSize = 13.sp
         )
     }
 }
 
 @Composable
-private fun RowScope.StatCard(
-    title: String,
-    value: String,
-    color: Color
+private fun InfoSummaryCard(
+    items: List<InfoItem>,
+    modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = Modifier
-            .weight(1f)
-            .height(96.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = color.copy(alpha = 0.08f)
+    Card(
+        modifier = modifier
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = StoreSurface),
+        border = BorderStroke(1.dp, StoreBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(text = value, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = color)
-            Text(text = title, fontSize = 13.sp, color = Color(0xFF606060))
+        Column(modifier = Modifier.padding(16.dp)) {
+            InfoGrid(items = items)
         }
     }
 }
+
+@Composable
+private fun InfoGrid(items: List<InfoItem>) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowItems.forEach { info ->
+                    InfoPill(
+                        modifier = Modifier.weight(1f),
+                        icon = info.icon,
+                        label = info.label,
+                        value = info.value
+                    )
+                }
+                if (rowItems.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+data class InfoItem(
+    val icon: ImageVector,
+    val label: String,
+    val value: String
+)
 
 @Composable
 private fun ValidationStatsCard(
@@ -603,27 +621,38 @@ private fun ValidationStatsCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = StoreSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, StoreBorder)
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(text = "Validaciones", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1A1A1A))
+            Text(text = "Validaciones", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = StoreTitleText)
             Text(
                 text = "Los validados aumentan según el escaneo QR. Los pendientes son reservas aún no validadas.",
                 fontSize = 12.sp,
-                color = Color(0xFF9CA3AF),
+                color = StoreSubtleText,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                StatCard(
+            val total = (validated + pending).coerceAtLeast(1)
+            LinearProgressIndicator(
+                progress = validated.toFloat() / total,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                color = StorePrimary,
+                trackColor = StoreBackground
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricPill(
                     title = validatedTitle,
-                    value = validated.toString(),
-                    color = Color(0xFF10B981)
+                    value = validated,
+                    accent = StorePrimary
                 )
-                StatCard(
+                MetricPill(
                     title = pendingTitle,
-                    value = pending.toString(),
-                    color = Color(0xFFFF914D)
+                    value = pending,
+                    accent = StoreWarning
                 )
             }
         }
@@ -631,28 +660,55 @@ private fun ValidationStatsCard(
 }
 
 @Composable
-private fun RowScope.InfoPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun RowScope.MetricPill(
+    title: String,
+    value: Int,
+    accent: Color
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.08f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(text = title, fontSize = 12.sp, color = accent.copy(alpha = 0.9f))
+        Text(text = value.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = StoreBodyText)
+    }
+}
+
+@Composable
+private fun InfoPill(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
     label: String,
     value: String
 ) {
     Surface(
-        modifier = Modifier.weight(1f),
+        modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFFF8F8FA),
-        border = BorderStroke(1.dp, Color(0xFFF0F0F2))
+        color = StoreSurface,
+        border = BorderStroke(1.dp, StoreBorder)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF606060), modifier = Modifier.size(20.dp))
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(StorePrimary.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = StorePrimaryDark, modifier = Modifier.size(18.dp))
+            }
             Column {
-                Text(text = label, fontSize = 12.sp, color = Color(0xFF9CA3AF))
-                Text(text = value, fontSize = 14.sp, color = Color(0xFF111827), fontWeight = FontWeight.Medium)
+                Text(text = label, fontSize = 12.sp, color = StoreSubtleText)
+                Text(text = value, fontSize = 15.sp, color = StoreBodyText, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -668,8 +724,9 @@ private fun ParticipantsExpandableList(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = StoreSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, StoreBorder)
     ) {
         Column {
             Row(
@@ -681,13 +738,13 @@ private fun ParticipantsExpandableList(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Group, contentDescription = null, tint = Color(0xFF606060))
-                    Text(text = title, color = Color(0xFF1A1A1A), fontWeight = FontWeight.Medium)
+                    Icon(Icons.Default.Group, contentDescription = null, tint = StoreMutedText)
+                    Text(text = title, color = StoreTitleText, fontWeight = FontWeight.Medium)
                 }
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = Color(0xFF606060),
+                    tint = StoreMutedText,
                     modifier = Modifier
                         .size(20.dp)
                         .rotate(if (expanded) 90f else 0f)
@@ -695,7 +752,7 @@ private fun ParticipantsExpandableList(
             }
             AnimatedVisibility(visible = expanded) {
                 Column {
-                    Divider(color = Color(0xFFF4F4F7))
+                    Divider(color = StoreBackground)
                     participants.forEachIndexed { index, participant ->
                         ParticipantRow(participant = participant, showDivider = index != participants.lastIndex)
                     }
@@ -721,9 +778,9 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
                         .size(48.dp)
                         .background(
                             color = when (participant.state) {
-                                ParticipantState.RETIRED -> Color(0xFF3B82F6)
-                                ParticipantState.VALIDATED -> Color(0xFF10B981)
-                                ParticipantState.PENDING -> Color(0xFFFF914D)
+                                ParticipantState.RETIRED -> StoreAccentBlue
+                                ParticipantState.VALIDATED -> StorePrimary
+                                ParticipantState.PENDING -> StoreWarning
                             }.copy(alpha = 0.15f),
                             shape = CircleShape
                         ),
@@ -740,17 +797,17 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
                     )
                 }
                 Column {
-                    Text(text = participant.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1A1A1A))
+                    Text(text = participant.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = StoreTitleText)
                     Text(
                         text = "${participant.units} ${if (participant.units == 1) "unidad" else "unidades"}",
                         fontSize = 13.sp,
-                        color = Color(0xFF606060),
+                        color = StoreMutedText,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = participant.reservationDate,
                         fontSize = 12.sp,
-                        color = Color(0xFF9CA3AF)
+                        color = StoreSubtleText
                     )
                 }
             }
@@ -768,7 +825,7 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
             }
         }
         if (showDivider) {
-            Divider(color = Color(0xFFF4F4F7), thickness = 1.dp, modifier = Modifier.padding(start = 20.dp))
+            Divider(color = StoreBackground, thickness = 1.dp, modifier = Modifier.padding(start = 20.dp))
         }
     }
 }
@@ -792,7 +849,7 @@ private fun GradientButton(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.horizontalGradient(listOf(Color(0xFF10B981), Color(0xFF059669))),
+                    Brush.horizontalGradient(listOf(StorePrimary, StorePrimaryDark)),
                     RoundedCornerShape(18.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -824,14 +881,14 @@ private fun DisabledButton(text: String, subtitle: String) {
                 .height(54.dp),
             shape = RoundedCornerShape(18.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFE5E7EB),
-                disabledContainerColor = Color(0xFFE5E7EB),
-                disabledContentColor = Color(0xFF9CA3AF)
+                containerColor = StoreBorder,
+                disabledContainerColor = StoreBorder,
+                disabledContentColor = StoreSubtleText
             )
         ) {
             Text(text = text, fontWeight = FontWeight.SemiBold)
         }
-        Text(text = subtitle, color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        Text(text = subtitle, color = StoreSubtleText, fontSize = 12.sp)
     }
 }
 
@@ -843,8 +900,8 @@ private fun OutlinedDangerButton(text: String, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(54.dp),
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(2.dp, Color(0xFFFECACA)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626))
+        border = BorderStroke(2.dp, StoreDanger.copy(alpha = 0.3f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = StoreDanger)
     ) {
         Text(text = text, fontWeight = FontWeight.SemiBold)
     }
@@ -858,7 +915,7 @@ private fun PrimaryButton(text: String, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(54.dp),
         shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+        colors = ButtonDefaults.buttonColors(containerColor = StorePrimary)
     ) {
         Text(text = text, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
@@ -876,11 +933,11 @@ private fun SecondaryButton(
             .fillMaxWidth()
             .height(54.dp),
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1F2937))
+        border = BorderStroke(1.dp, StoreBorder),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = StoreBodyText)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            icon?.let { Icon(it, contentDescription = null, tint = Color(0xFF1F2937)) }
+            icon?.let { Icon(it, contentDescription = null, tint = StoreBodyText) }
             Text(text = text, fontWeight = FontWeight.Medium)
         }
     }
@@ -930,8 +987,8 @@ private fun RowScope.StatColumn(label: String, value: String) {
         modifier = Modifier.weight(1f),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = label, color = Color(0xFF6B7280), fontSize = 12.sp)
-        Text(text = value, color = Color(0xFF111827), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = label, color = StoreMutedText, fontSize = 12.sp)
+        Text(text = value, color = StoreBodyText, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -968,17 +1025,17 @@ private fun participantStateConfig(state: ParticipantState): ParticipantStateCon
         ParticipantState.RETIRED -> ParticipantStateConfig(
             label = "Retirado",
             background = Color(0xFFDBEAFE),
-            content = Color(0xFF2563EB)
+            content = StoreAccentBlue
         )
         ParticipantState.VALIDATED -> ParticipantStateConfig(
             label = "Validado",
             background = Color(0xFFD1FAE5),
-            content = Color(0xFF059669)
+            content = StorePrimaryDark
         )
         ParticipantState.PENDING -> ParticipantStateConfig(
             label = "Pendiente",
             background = Color(0xFFFFF7ED),
-            content = Color(0xFFEA580C)
+            content = StoreWarning
         )
     }
 }
@@ -1042,5 +1099,3 @@ fun mapParticipantsForStore(
         )
     }
 }
-
-

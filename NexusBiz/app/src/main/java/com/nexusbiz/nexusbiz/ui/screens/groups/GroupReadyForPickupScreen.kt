@@ -90,30 +90,61 @@ fun GroupReadyForPickupScreen(
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
-    val participants = remember(group.participants, currentUser?.id) {
-        if (group.participants.isNotEmpty()) {
-            group.participants.mapIndexed { index, participant ->
+    
+    // Calcular ahorro del cliente
+    val groupPrice = group.groupPrice.takeIf { it > 0 } ?: group.normalPrice
+    val normalPrice = group.normalPrice.takeIf { it > 0 } ?: groupPrice
+    val savings = max(0.0, (normalPrice - groupPrice) * userReservationQuantity)
+    val totalReservationPrice = groupPrice * userReservationQuantity
+    
+    // IMPORTANTE: Solo mostrar participantes reales de la base de datos
+    // NO usar datos mockeados - usar el estado real de validación de cada participante
+    val participants = remember(group.participants, currentUser?.id, userReservationQuantity) {
+        val activeParticipants = group.activeParticipants
+        if (activeParticipants.isNotEmpty()) {
+            // Mapear participantes reales con su estado real de validación
+            activeParticipants.map { participant ->
+                val isCurrentUser = participant.userId == currentUser?.id
+                val status = when {
+                    participant.isValidated || participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED -> "completed"
+                    participant.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.CANCELLED -> "pending" // No debería aparecer, pero por seguridad
+                    else -> "pending"
+                }
                 ParticipantPickupData(
                     id = participant.userId,
-                    name = if (participant.userId == currentUser?.id) "Tú" else participant.alias.ifBlank { "Participante ${index + 1}" },
-                    units = if (participant.userId == currentUser?.id) userReservationQuantity else 1,
-                    status = if (index == 1) "completed" else "pending",
-                    isYou = participant.userId == currentUser?.id
+                    name = if (isCurrentUser) "Tú" else participant.alias.ifBlank { "Participante" },
+                    units = participant.reservedUnits.coerceAtLeast(0),
+                    status = status,
+                    isYou = isCurrentUser
                 )
             }
         } else {
-            listOf(
-                ParticipantPickupData("user-0", "Tú", userReservationQuantity, "pending", true),
-                ParticipantPickupData("user-1", "María R.", 3, "completed", false),
-                ParticipantPickupData("user-2", "Ana L.", 2, "pending", false),
-                ParticipantPickupData("user-3", "Carlos M.", 2, "pending", false),
-                ParticipantPickupData("user-4", "Luis P.", 3, "pending", false)
-            )
+            // Si no hay participantes activos, mostrar solo el usuario actual si tiene reserva
+            if (userReservationQuantity > 0) {
+                listOf(
+                    ParticipantPickupData(
+                        id = currentUser?.id ?: "user-0",
+                        name = "Tú",
+                        units = userReservationQuantity,
+                        status = "pending",
+                        isYou = true
+                    )
+                )
+            } else {
+                // Lista vacía si no hay participantes
+                emptyList()
+            }
         }
     }
 
     val handleNavigate = {
-        val query = Uri.encode(group.storeName.ifBlank { "Bodega" })
+        // Usar storeId para obtener dirección completa si está disponible
+        // Por ahora usar storeName como fallback
+        val query = if (group.storeId.isNotBlank()) {
+            Uri.encode("${group.storeName}, ${currentUser?.district ?: ""}")
+        } else {
+            Uri.encode(group.storeName.ifBlank { "Bodega" })
+        }
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$query"))
         context.startActivity(intent)
     }
@@ -267,7 +298,7 @@ fun GroupReadyForPickupScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "${group.targetSize} / ${group.targetSize}",
+                                    text = "${group.reservedUnits} / ${group.targetSize}",
                                     modifier = Modifier.fillMaxWidth(),
                                     fontSize = 30.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -275,7 +306,7 @@ fun GroupReadyForPickupScreen(
                                     textAlign = TextAlign.Center
                                 )
                                 Text(
-                                    text = "unidades reservadas",
+                                    text = "unidades completadas",
                                     modifier = Modifier.fillMaxWidth(),
                                     fontSize = 14.sp,
                                     color = Color(0xFF606060),
@@ -514,12 +545,22 @@ fun GroupReadyForPickupScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
-                            Text(
-                                text = "${currencyFormat.format(group.groupPrice.takeIf { it > 0 } ?: group.normalPrice)} × $userReservationQuantity = ${currencyFormat.format((group.groupPrice.takeIf { it > 0 } ?: group.normalPrice) * userReservationQuantity)}",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF10B981)
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "${currencyFormat.format(groupPrice)} × $userReservationQuantity = ${currencyFormat.format(totalReservationPrice)}",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF10B981)
+                                )
+                                if (savings > 0) {
+                                    Text(
+                                        text = "Ahorraste: ${currencyFormat.format(savings)}",
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF10B981),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
                     }
                 }

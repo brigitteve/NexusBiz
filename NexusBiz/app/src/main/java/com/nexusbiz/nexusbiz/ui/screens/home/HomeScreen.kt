@@ -61,6 +61,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +103,9 @@ fun HomeScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToMyGroups: () -> Unit,
     onSwitchToStore: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onDistrictChange: ((String) -> Unit)? = null,
+    authRepository: AuthRepository // Recibir la instancia compartida
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var searchQuery by remember { mutableStateOf("") }
@@ -110,8 +113,18 @@ fun HomeScreen(
     var showDistritoModal by remember { mutableStateOf(false) }
     var currentDistrict by remember { mutableStateOf(district) }
     val scope = rememberCoroutineScope()
-    val authRepository = remember { AuthRepository() }
-    val currentUser = remember { runBlocking { authRepository.currentUser.first() } }
+    // Obtener usuario actual de forma reactiva desde la instancia compartida
+    val currentUser by authRepository.currentUser.collectAsState(initial = null)
+    
+    // Log para depuración
+    LaunchedEffect(currentUser) {
+        if (currentUser != null) {
+            android.util.Log.d("HomeScreen", "Usuario cargado: alias=${currentUser?.alias}, district=${currentUser?.district}")
+        } else {
+            android.util.Log.w("HomeScreen", "Usuario actual es null")
+        }
+    }
+    
     LaunchedEffect(searchQuery) {
         onSearchQueryChange(searchQuery)
     }
@@ -174,7 +187,7 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = currentUser?.alias?.ifBlank { "Usuario" } ?: "Usuario",
+                                text = currentUser?.alias?.takeIf { it.isNotBlank() } ?: "Usuario",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
@@ -257,36 +270,7 @@ fun HomeScreen(
                             }
                         }
 
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    drawerState.close()
-                                    onSwitchToStore()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF10B981),
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(18.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Store,
-                                contentDescription = "Modo bodeguero",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "Cambiar a modo bodeguero",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 16.sp
-                            )
-                        }
+                        // Botón "Cambiar a modo bodeguero" oculto según requerimiento
 
                         Row(
                             modifier = Modifier
@@ -543,6 +527,8 @@ fun HomeScreen(
             onConfirmar = { nuevoDistrito ->
                 // Actualizar el distrito actual
                 currentDistrict = nuevoDistrito
+                // Notificar el cambio de distrito para refrescar productos
+                onDistrictChange?.invoke(nuevoDistrito)
                 showDistritoModal = false
             }
         )

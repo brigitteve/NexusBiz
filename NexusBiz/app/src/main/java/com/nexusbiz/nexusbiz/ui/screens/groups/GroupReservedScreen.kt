@@ -75,19 +75,25 @@ fun GroupReservedScreen(
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
-    val userLevel = currentUser?.badges?.firstOrNull()?.ifBlank { null } ?: "Bronce"
+    
+    // Calcular unidades reservadas por otros (excluyendo al usuario actual)
+    val unitsReservedByOthers = group.reservedUnits - userReservationQuantity
+    
+    // Obtener nivel del usuario basado en puntos
+    val userLevel = remember(currentUser?.points) {
+        when {
+            (currentUser?.points ?: 0) >= 200 -> "Oro"
+            (currentUser?.points ?: 0) >= 100 -> "Plata"
+            else -> "Bronce"
+        }
+    }
 
-    val fallbackParticipants = listOf(
-        ParticipantData(id = "user-0", name = "Tú", units = userReservationQuantity, isYou = true),
-        ParticipantData(id = "user-1", name = "María R.", units = 3, isYou = false),
-        ParticipantData(id = "user-2", name = "Ana L.", units = 2, isYou = false),
-        ParticipantData(id = "user-3", name = "Carlos M.", units = 2, isYou = false),
-        ParticipantData(id = "user-4", name = "Luis P.", units = 3, isYou = false)
-    )
-
+    // IMPORTANTE: Solo mostrar participantes reales de la base de datos
+    // NO usar datos mockeados - si no hay participantes, mostrar lista vacía o solo el usuario actual
     val participants = remember(group.participants, currentUser?.id, userReservationQuantity) {
         val activeParticipants = group.activeParticipants
         if (activeParticipants.isNotEmpty()) {
+            // Mapear participantes reales de la base de datos
             activeParticipants.mapIndexed { index, participant ->
                 val alias = participant.alias.ifBlank { "Participante ${index + 1}" }
                 val isCurrentUser = participant.userId == currentUser?.id
@@ -99,7 +105,20 @@ fun GroupReservedScreen(
                 )
             }
         } else {
-            fallbackParticipants
+            // Si no hay participantes activos, mostrar solo el usuario actual si tiene reserva
+            if (userReservationQuantity > 0) {
+                listOf(
+                    ParticipantData(
+                        id = currentUser?.id ?: "user-0",
+                        name = "Tú",
+                        units = userReservationQuantity,
+                        isYou = true
+                    )
+                )
+            } else {
+                // Lista vacía si no hay participantes
+                emptyList()
+            }
         }
     }
 
@@ -341,6 +360,27 @@ fun GroupReservedScreen(
                                 textAlign = TextAlign.Center
                             )
                         }
+                        
+                        // Mostrar unidades reservadas por otros
+                        if (unitsReservedByOthers > 0) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Otros han reservado: ",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF606060)
+                                )
+                                Text(
+                                    text = "$unitsReservedByOthers ${if (unitsReservedByOthers == 1) "unidad" else "unidades"}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF10B981)
+                                )
+                            }
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -348,7 +388,7 @@ fun GroupReservedScreen(
                             border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.2f))
                         ) {
                             Text(
-                                text = "💡 Cuando lleguen a ${group.targetSize} unidades, se activará el precio grupal y recibirás tu QR de retiro",
+                                text = "💡 Para activar el código QR de retiro, el grupo debe alcanzar ${group.targetSize} unidades reservadas",
                                 modifier = Modifier.padding(16.dp),
                                 fontSize = 13.sp,
                                 color = Color(0xFF1A1A1A),
@@ -401,37 +441,40 @@ fun GroupReservedScreen(
                                     )
                                 }
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "Has reservado:",
-                                        fontSize = 14.sp,
-                                        color = Color.White.copy(alpha = 0.8f)
-                                    )
-                                    Text(
-                                        text = "$userReservationQuantity ${if (userReservationQuantity == 1) "unidad" else "unidades"}",
-                                        fontSize = 30.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(Color.White.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
+                            // Detalle de mi reserva
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        Icons.Default.Inventory2,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(32.dp)
-                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "Detalle de mi reserva",
+                                            fontSize = 14.sp,
+                                            color = Color.White.copy(alpha = 0.8f)
+                                        )
+                                        Text(
+                                            text = "$userReservationQuantity ${if (userReservationQuantity == 1) "unidad" else "unidades"}",
+                                            fontSize = 30.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(Color.White.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Inventory2,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

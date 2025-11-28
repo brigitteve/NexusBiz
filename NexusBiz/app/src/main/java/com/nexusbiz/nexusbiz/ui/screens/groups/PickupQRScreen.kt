@@ -121,11 +121,30 @@ fun PickupQRScreen(
         ?.reservedUnits
         ?.coerceAtLeast(0)
         ?: 0
+    
+    // Calcular precios y totales
+    val groupPrice = group.groupPrice.takeIf { it > 0 } ?: group.normalPrice
+    val totalReservationPrice = groupPrice * userReservationQuantity
+    
+    // Obtener estado del participante
+    val userParticipant = group.activeParticipants.firstOrNull { it.userId == currentUser?.id }
+    val reservationStatus = if (userParticipant?.isValidated == true) {
+        "Completado"
+    } else {
+        "Pendiente en retiro"
+    }
+    
+    // Dirección de la bodega (usar distrito del usuario como fallback)
+    val storeAddress = if (currentUser?.district?.isNotBlank() == true) {
+        "${group.storeName}, ${currentUser.district}"
+    } else {
+        group.storeName.ifBlank { "Bodega" }
+    }
+    
     val reservationCode = group.qrCode
-    val storeAddress = "Av. América Sur 1520, San Isidro" // Valor por defecto, se puede obtener del Store si está disponible
 
     val handleNavigate = {
-        val query = Uri.encode(group.storeName.ifBlank { "Bodega" })
+        val query = Uri.encode(storeAddress)
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$query"))
         context.startActivity(intent)
     }
@@ -255,14 +274,18 @@ fun PickupQRScreen(
 
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFFFD447)
+                                color = if (reservationStatus == "Completado") {
+                                    Color(0xFF10B981)
+                                } else {
+                                    Color(0xFFFFD447)
+                                }
                             ) {
                                 Text(
-                                    text = "Pendiente de retiro",
+                                    text = reservationStatus,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF1A1A1A)
+                                    color = if (reservationStatus == "Completado") Color.White else Color(0xFF1A1A1A)
                                 )
                             }
                         }
@@ -306,12 +329,30 @@ fun PickupQRScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Precio grupal:",
+                                text = "Unidades reservadas:",
                                 fontSize = 14.sp,
                                 color = Color(0xFF606060)
                             )
                             Text(
-                                text = currencyFormat.format(group.groupPrice.takeIf { it > 0 } ?: group.normalPrice),
+                                text = "$userReservationQuantity ${if (userReservationQuantity == 1) "unidad" else "unidades"}",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1A1A1A)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Precio por unidad:",
+                                fontSize = 14.sp,
+                                color = Color(0xFF606060)
+                            )
+                            Text(
+                                text = currencyFormat.format(groupPrice),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF10B981)
@@ -324,12 +365,12 @@ fun PickupQRScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Código de reserva:",
+                                text = "Total de la reserva:",
                                 fontSize = 14.sp,
                                 color = Color(0xFF606060)
                             )
                             Text(
-                                text = reservationCode,
+                                text = currencyFormat.format(totalReservationPrice),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF1A1A1A)

@@ -74,7 +74,6 @@ fun ProfileScreen(
         buildGamification(user.points, user.totalSavings, user.completedGroups, user.streak)
     }
     val progress = (gamification.points / gamification.nextLevelPoints.toFloat()).coerceIn(0f, 1f)
-    val badges = remember(user.badges) { buildBadgeDefinitions(user.badges) }
     val scrollState = rememberScrollState()
     val headerColors = remember(gamification.level) { gradientForLevel(gamification.level) }
 
@@ -321,39 +320,6 @@ fun ProfileScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Insignias obtenidas",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF1A1A1A)
-                    )
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        badges.chunked(3).forEach { row ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                row.forEach { badge ->
-                                    BadgeItem(
-                                        badge,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            SectionCard(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth()
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
                         text = "Cómo ganar puntos",
                         style = MaterialTheme.typography.titleMedium,
                         color = Color(0xFF1A1A1A)
@@ -378,12 +344,7 @@ fun ProfileScreen(
                     label = "Cambiar contraseña",
                     onClick = onChangePassword
                 )
-                GradientActionItem(
-                    label = "Cambiar a modo bodeguero",
-                    icon = Icons.Default.Store,
-                    colors = listOf(Color(0xFF10B981), Color(0xFF059669)),
-                    onClick = { showTransition = true }
-                )
+                // Botón "Cambiar a modo bodeguero" oculto según requerimiento
                 ProfileActionItem(
                     icon = Icons.Default.Description,
                     label = "Términos y privacidad",
@@ -425,12 +386,6 @@ private data class GamificationStats(
     val weekStreak: Int
 )
 
-private data class BadgeDefinition(
-    val id: String,
-    val name: String,
-    val icon: String,
-    val unlocked: Boolean
-)
 
 @Composable
 private fun SectionCard(
@@ -505,37 +460,6 @@ private fun StatsCard(
     }
 }
 
-@Composable
-private fun BadgeItem(badge: BadgeDefinition, modifier: Modifier = Modifier) {
-    Column(
-        modifier = Modifier
-            .then(modifier)
-            .aspectRatio(1f)
-            .background(Color.White, shape = RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = if (badge.unlocked) Color(0xFFE5E7EB) else Color(0xFFF4F4F7),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = badge.icon,
-            fontSize = 22.sp
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = badge.name,
-            fontSize = 10.sp,
-            color = Color(0xFF1A1A1A),
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
 
 @Composable
 private fun PointsRulesSection() {
@@ -715,44 +639,3 @@ private fun gradientForLevel(level: String): List<Color> {
     }
 }
 
-private fun buildBadgeDefinitions(userBadges: List<String>): List<BadgeDefinition> {
-    val templates = listOf(
-        BadgeDefinition(
-            "Primera reserva",
-            "Primera reserva",
-            "🎯",
-            userBadges.contains("Primera reserva")
-        ),
-        BadgeDefinition(
-            "Creador de grupos",
-            "Creador de grupos",
-            "👥",
-            userBadges.contains("Creador de grupos")
-        ),
-        BadgeDefinition(
-            "Ahorrador experto",
-            "Ahorrador experto",
-            "💰",
-            userBadges.contains("Ahorrador experto")
-        ),
-        BadgeDefinition(
-            "Compartidor social",
-            "Compartidor social",
-            "📱",
-            userBadges.contains("Compartidor social")
-        ),
-        BadgeDefinition(
-            "Usuario frecuente",
-            "Usuario frecuente",
-            "⭐",
-            userBadges.contains("Usuario frecuente")
-        ),
-        BadgeDefinition(
-            "Maestro del ahorro",
-            "Maestro del ahorro",
-            "🏆",
-            userBadges.contains("Maestro del ahorro")
-        )
-    )
-    return templates
-}

@@ -146,7 +146,7 @@ fun EditProfileScreen(
                 )
 
                 InfoCard(
-                    text = "Tu número de teléfono se usa para iniciar sesión y recibir notificaciones importantes.",
+                    text = "Tu alias se usa para iniciar sesión.",
                     accent = accent
                 )
 

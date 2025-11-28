@@ -91,6 +91,15 @@ fun ScanQRScreen(
     LaunchedEffect(cameraPermissionState.status) {
         if (cameraPermissionState.status is PermissionStatus.Granted) {
             isScanning = true
+            // Asegurar que la vista se reanude cuando se otorga el permiso
+            barcodeView?.resume()
+        }
+    }
+    
+    // Asegurar que la cámara se inicie cuando isScanning cambia a true
+    LaunchedEffect(isScanning) {
+        if (isScanning && cameraPermissionState.status is PermissionStatus.Granted) {
+            barcodeView?.resume()
         }
     }
 
@@ -105,21 +114,19 @@ fun ScanQRScreen(
                 factory = { ctx ->
                     val view = DecoratedBarcodeView(ctx).apply {
                         val formats = listOf(BarcodeFormat.QR_CODE)
-                        barcodeView = this
                         decoderFactory = DefaultDecoderFactory(formats)
-                        resume()
-                    }
-                    view
-                },
-                modifier = Modifier.fillMaxSize(),
-                update = { view ->
-                    if (isScanning && scanResult == null) {
-                        view.decodeContinuous(object : BarcodeCallback {
+                        // Configurar layout params para que ocupe todo el espacio
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        // Configurar el callback antes de iniciar
+                        decodeContinuous(object : BarcodeCallback {
                             override fun barcodeResult(result: BarcodeResult?) {
                                 result?.text?.let { qrCode ->
                                     // Detener el escaneo temporalmente
                                     isScanning = false
-                                    view.pause()
+                                    pause()
                                     
                                     // Procesar el resultado
                                     handleQRResult(
@@ -142,7 +149,7 @@ fun ScanQRScreen(
                                             // Reanudar escaneo después de un momento
                                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                                 isScanning = true
-                                                view.resume()
+                                                resume()
                                             }, 2000)
                                         },
                                         onWarning = { warningMessage ->
@@ -154,7 +161,7 @@ fun ScanQRScreen(
                                             // Reanudar escaneo después de un momento
                                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                                 isScanning = true
-                                                view.resume()
+                                                resume()
                                             }, 2000)
                                         }
                                     )
@@ -165,11 +172,29 @@ fun ScanQRScreen(
                                 // No necesitamos hacer nada aquí
                             }
                         })
-                    } else if (!isScanning) {
+                        barcodeView = this
+                    }
+                    view
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    // Actualizar la referencia a la vista
+                    barcodeView = view
+                }
+            )
+            
+            // Iniciar/pausar la cámara basándose en el estado
+            LaunchedEffect(isScanning, scanResult) {
+                barcodeView?.let { view ->
+                    if (isScanning && scanResult == null) {
+                        // Pequeño delay para asegurar que la vista esté lista
+                        kotlinx.coroutines.delay(100)
+                        view.resume()
+                    } else {
                         view.pause()
                     }
                 }
-            )
+            }
 
             // Control de linterna
             LaunchedEffect(flashlightOn) {

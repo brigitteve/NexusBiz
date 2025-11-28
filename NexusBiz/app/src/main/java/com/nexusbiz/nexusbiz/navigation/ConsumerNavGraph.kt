@@ -69,14 +69,34 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             var searchQuery by remember { mutableStateOf<String?>(null) }
             var categories by remember { mutableStateOf<List<com.nexusbiz.nexusbiz.data.model.Category>>(emptyList()) }
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
-            LaunchedEffect(selectedCategory, searchQuery) {
-                appViewModel.fetchProducts("Trujillo", selectedCategory, searchQuery)
+            // Obtener el distrito del usuario actual
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            var userDistrict by remember { mutableStateOf(currentUser?.district?.takeIf { it.isNotBlank() } ?: "Trujillo") }
+            
+            // Actualizar distrito cuando cambie el usuario
+            LaunchedEffect(currentUser?.district) {
+                currentUser?.district?.takeIf { it.isNotBlank() }?.let {
+                    userDistrict = it
+                }
+            }
+            
+            // Obtener productos del distrito del usuario Y todos los grupos activos
+            LaunchedEffect(selectedCategory, searchQuery, userDistrict) {
+                appViewModel.fetchProducts(userDistrict, selectedCategory, searchQuery)
+                // IMPORTANTE: Cargar TODOS los grupos activos de la BD para mostrar ofertas reales
+                appViewModel.fetchAllActiveGroups()
+            }
+            // Refrescar grupos activos periódicamente para mantener sincronización con la BD
+            LaunchedEffect(Unit) {
+                while (true) {
+                    kotlinx.coroutines.delay(10000) // Refrescar cada 10 segundos
+                    appViewModel.fetchAllActiveGroups()
+                }
             }
             LaunchedEffect(Unit) {
                 categories = productRepository.getCategories()
             }
             // Otorgar puntos diarios si corresponde
-            val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val context = LocalContext.current
             LaunchedEffect(Unit) {
                 currentUser?.let { user ->
@@ -91,7 +111,7 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 }
             }
             HomeScreen(
-                district = "Trujillo",
+                district = userDistrict,
                 products = appUiState.products,
                 groups = appUiState.groups,
                 categories = categories,
@@ -104,6 +124,9 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 selectedCategory = selectedCategory,
                 onSearchQueryChange = { query ->
                     searchQuery = if (query.isBlank()) null else query
+                },
+                onDistrictChange = { newDistrict ->
+                    userDistrict = newDistrict
                 },
                 onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
                 onNavigateToMyGroups = { navController.navigate(Screen.MyGroups.route) },
@@ -120,7 +143,8 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
-                }
+                },
+                authRepository = authRepository
             )
         }
         composable(
@@ -160,30 +184,24 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val productId = backStackEntry.arguments?.getString(Screen.ProductDetail.PRODUCT_ID_ARG) ?: ""
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
-            // Refrescar productos y grupos cuando cambia el productId o el usuario
-            LaunchedEffect(productId, currentUser?.id) {
-                appViewModel.fetchProducts()
+            val userDistrict = currentUser?.district?.takeIf { it.isNotBlank() } ?: "Trujillo"
+            // Refrescar productos y TODOS los grupos activos cuando cambia el productId o el usuario
+            LaunchedEffect(productId, currentUser?.id, userDistrict) {
+                appViewModel.fetchProducts(userDistrict, null, null)
+                // IMPORTANTE: Cargar TODOS los grupos activos de la BD, no solo del usuario
+                appViewModel.fetchAllActiveGroups()
+                // También cargar grupos del usuario para sus reservas
                 currentUser?.let { appViewModel.fetchGroups(it.id) }
-                // Buscar grupo activo para este producto
-                appUiState.groups.firstOrNull { 
-                    it.productId == productId && it.status == GroupStatus.ACTIVE && !it.isExpired 
-                }?.let { appViewModel.fetchGroupById(it.id) }
             }
             // Refrescar periódicamente para ver nuevas ofertas de bodegueros
             LaunchedEffect(productId) {
                 kotlinx.coroutines.delay(10000) // Esperar 10 segundos antes del primer refresh
                 while (true) {
-                    appViewModel.fetchProducts()
-                    // Refrescar grupos del usuario actual
+                    appViewModel.fetchProducts(userDistrict, null, null)
+                    // IMPORTANTE: Refrescar TODOS los grupos activos para mantener sincronización
+                    appViewModel.fetchAllActiveGroups()
+                    // También refrescar grupos del usuario
                     currentUser?.let { appViewModel.fetchGroups(it.id) }
-                    // Buscar y refrescar grupo activo para este producto
-                    // Verificar tiempo real usando expiresAt
-                    val now = System.currentTimeMillis()
-                    appUiState.groups.firstOrNull { 
-                        it.productId == productId && 
-                        it.status == GroupStatus.ACTIVE && 
-                        it.expiresAt > now // Verificar tiempo real
-                    }?.let { appViewModel.fetchGroupById(it.id) }
                     kotlinx.coroutines.delay(10000) // Refrescar cada 10 segundos
                 }
             }

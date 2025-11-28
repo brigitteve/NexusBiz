@@ -197,7 +197,13 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                             
                             val storeId = ownerStore.id
                             val storeName = ownerStore.name.ifEmpty { ownerStore.commercialName ?: userSnapshot.alias.ifEmpty { "Mi Bodega" } }
-                            val storeDistrict = ownerStore.district.ifEmpty { userSnapshot.district.ifEmpty { "Trujillo" } }
+                            // Usar el distrito de la bodega, si no tiene usar el del usuario, si no tiene usar "Trujillo"
+                            val storeDistrict = when {
+                                ownerStore.district.isNotBlank() -> ownerStore.district
+                                userSnapshot.district.isNotBlank() -> userSnapshot.district
+                                else -> "Trujillo"
+                            }
+                            android.util.Log.d("StoreNavGraph", "Publicando producto - storeId: $storeId, storeName: $storeName, district: $storeDistrict")
                             
                             // Validar límite de ofertas activas según el plan
                             val storePlan = ownerStore.plan ?: com.nexusbiz.nexusbiz.data.model.StorePlan.FREE

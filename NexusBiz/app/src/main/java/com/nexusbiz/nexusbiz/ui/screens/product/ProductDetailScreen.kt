@@ -80,13 +80,41 @@ fun ProductDetailScreen(
     product: Product?,
     group: Group?,
     user: User?,
-    timeRemaining: Long = 0,
+    timeRemaining: Long = 0, // Mantener para compatibilidad, pero usar group?.timeRemaining
     onJoinGroup: (Int) -> Unit,
     onCreateGroup: (Int) -> Unit,
     onShareGroup: () -> Unit,
     onViewStores: () -> Unit,
     onBack: () -> Unit
 ) {
+    // IMPORTANTE: Usar el tiempo del grupo directamente para que se actualice automáticamente
+    // El tiempo debe venir del grupo activo de la bodega, no de un parámetro estático
+    // El tiempo se mantiene igual independientemente de las unidades que cambies
+    // Calcular el tiempo restante directamente desde expiresAt del grupo
+    var currentTimeRemaining by remember { mutableStateOf(group?.timeRemaining ?: timeRemaining) }
+    
+    // Actualizar el tiempo periódicamente basándose en expiresAt del grupo
+    LaunchedEffect(group?.expiresAt) {
+        // Inicializar con el tiempo del grupo
+        val expiresAt = group?.expiresAt ?: 0L
+        if (expiresAt > 0) {
+            currentTimeRemaining = maxOf(0, expiresAt - System.currentTimeMillis())
+        } else {
+            currentTimeRemaining = timeRemaining
+        }
+        
+        // Actualizar periódicamente para mantenerlo sincronizado
+        while (true) {
+            val expiresAtValue = group?.expiresAt ?: 0L
+            if (expiresAtValue > 0) {
+                val newTime = maxOf(0, expiresAtValue - System.currentTimeMillis())
+                currentTimeRemaining = newTime
+            } else {
+                currentTimeRemaining = timeRemaining
+            }
+            kotlinx.coroutines.delay(1000) // Actualizar cada segundo
+        }
+    }
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale("es", "PE"))
     val accentColor = Color(0xFF10B981)
     val backgroundColor = Color(0xFFF4F4F7)
@@ -472,7 +500,7 @@ fun ProductDetailScreen(
                                 }
                             }
                             TimerDisplay(
-                                timeRemaining = timeRemaining,
+                                timeRemaining = currentTimeRemaining,
                                 modifier = Modifier,
                                 onExpired = {}
                             )

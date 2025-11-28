@@ -65,6 +65,7 @@ class ProductRepository {
 
     suspend fun fetchProducts(district: String, category: String? = null, searchQuery: String? = null) {
         try {
+            Log.d("ProductRepository", "Buscando productos - distrito: '$district', categoría: $category, búsqueda: $searchQuery")
             val items = supabase.from("productos")
                 .select {
                     filter {
@@ -81,9 +82,14 @@ class ProductRepository {
                     }
                 }
                 .decodeList<RemoteProduct>()
-                .map { remoteProduct ->
+            Log.d("ProductRepository", "Productos encontrados en BD: ${items.size}")
+            items.forEach { product ->
+                Log.d("ProductRepository", "Producto: ${product.name}, distrito: ${product.district}, store: ${product.storeName}")
+            }
+            val mappedItems = items.map { remoteProduct ->
                     // Convertir store_plan String a StorePlan enum
-                    val plan = when (remoteProduct.storePlan) {
+                    // Si store_plan es null o vacío, usar FREE por defecto
+                    val plan = when (remoteProduct.storePlan?.uppercase()) {
                         "PRO" -> StorePlan.PRO
                         else -> StorePlan.FREE
                     }
@@ -114,8 +120,8 @@ class ProductRepository {
                         .thenByDescending { it.createdAt ?: "" }
                 )
 
-            mutex.withLock { _products.value = items }
-            Log.d("ProductRepository", "Productos obtenidos: ${items.size}")
+            mutex.withLock { _products.value = mappedItems }
+            Log.d("ProductRepository", "Productos mapeados y guardados: ${mappedItems.size}")
         } catch (e: IllegalStateException) {
             Log.e("ProductRepository", "Supabase no inicializado", e)
             mutex.withLock { _products.value = emptyList() }
@@ -138,7 +144,8 @@ class ProductRepository {
                 .decodeSingleOrNull<RemoteProduct>() ?: return null
             
             // Convertir store_plan String a StorePlan enum
-            val plan = when (remoteProduct.storePlan) {
+            // Si store_plan es null o vacío, usar FREE por defecto
+            val plan = when (remoteProduct.storePlan?.uppercase()) {
                 "PRO" -> StorePlan.PRO
                 else -> StorePlan.FREE
             }
@@ -164,6 +171,7 @@ class ProductRepository {
                 updatedAt = remoteProduct.updatedAt
             )
         } catch (e: Exception) {
+            Log.e("ProductRepository", "Error al obtener producto por ID: ${e.message}", e)
             null
         }
     }

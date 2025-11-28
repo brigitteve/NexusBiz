@@ -56,6 +56,27 @@ class AppViewModel(
         }
     }
 
+    /**
+     * Obtiene TODOS los grupos activos de la base de datos
+     * Usado para mostrar ofertas de todas las bodegas a los clientes
+     */
+    fun fetchAllActiveGroups() {
+        viewModelScope.launch {
+            val activeGroups = groupRepository.fetchAllActiveGroups()
+            // Combinar con grupos existentes del usuario
+            val currentGroups = _uiState.value.groups.toMutableList()
+            activeGroups.forEach { activeGroup ->
+                val idx = currentGroups.indexOfFirst { it.id == activeGroup.id }
+                if (idx >= 0) {
+                    currentGroups[idx] = activeGroup
+                } else {
+                    currentGroups.add(activeGroup)
+                }
+            }
+            _uiState.value = _uiState.value.copy(groups = currentGroups)
+        }
+    }
+
     fun fetchGroupById(id: String) {
         viewModelScope.launch {
             groupRepository.getGroupById(id)?.let { group ->

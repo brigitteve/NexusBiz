@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -67,6 +68,7 @@ fun GroupExpiredConsumerScreen(
 
     val currency = remember { NumberFormat.getCurrencyInstance(Locale("es", "PE")) }
     val groupPrice = if (group.groupPrice > 0) group.groupPrice else group.normalPrice
+    val normalPrice = if (group.normalPrice > 0) group.normalPrice else groupPrice
     val targetUnits = max(1, group.targetSize)
     val currentUnits = group.reservedUnits.coerceAtLeast(0)
     val progress = (currentUnits.toFloat() / targetUnits.toFloat()).coerceIn(0f, 1f)
@@ -269,19 +271,36 @@ fun GroupExpiredConsumerScreen(
                             fontSize = 13.sp,
                             color = Color(0xFF606060)
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = currency.format(groupPrice),
-                                fontSize = 14.sp,
-                                color = Color(0xFF606060),
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "No disponible",
-                                fontSize = 12.sp,
-                                color = Color(0xFFFF914D)
-                            )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Precio que nos iba a salir grupal:",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF606060)
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = currency.format(groupPrice),
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF10B981),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "por unidad",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF606060)
+                                )
+                            }
+                            if (normalPrice > groupPrice) {
+                                Text(
+                                    text = "Precio normal: ${currency.format(normalPrice)}",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF606060),
+                                    textDecoration = TextDecoration.LineThrough
+                                )
+                            }
                         }
                     }
                 }
