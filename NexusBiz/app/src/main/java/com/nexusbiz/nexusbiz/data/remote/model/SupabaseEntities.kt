@@ -56,11 +56,11 @@ data class Product(
     @SerialName("name")
     val name: String = "",
     @SerialName("description")
-    val description: String = "",
+    val description: String? = null,
     @SerialName("image_url")
-    val imageUrl: String = "",
+    val imageUrl: String? = null,
     @SerialName("category_id")
-    val categoryId: String = "",
+    val categoryId: String? = null,
     @SerialName("category_name")
     val categoryName: String = "",
     @SerialName("normal_price")

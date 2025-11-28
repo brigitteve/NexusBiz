@@ -76,7 +76,6 @@ fun StoreGroupDetailScreen(
     participants: List<StoreParticipantDisplay>,
     onBack: () -> Unit,
     onShare: (Group) -> Unit,
-    onFinalizeEarly: (Group) -> Unit,
     onPublishSimilar: (() -> Unit)? = null,
     onViewHistory: (() -> Unit)? = null,
     onScanQR: (() -> Unit)? = null
@@ -124,7 +123,6 @@ fun StoreGroupDetailScreen(
             participants = participantList,
             onBack = onBack,
             onShare = onShare,
-            onFinalizeEarly = onFinalizeEarly,
             onScanQR = onScanQR
         )
     }
@@ -244,15 +242,13 @@ private fun StoreActiveContent(
     participants: List<StoreParticipantDisplay>,
     onBack: () -> Unit,
     onShare: (Group) -> Unit,
-    onFinalizeEarly: (Group) -> Unit,
     onScanQR: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val progress = (group.currentSize.toFloat() / max(1, group.targetSize).toFloat()).coerceIn(0f, 1f)
     val progressPercent = (progress * 100).toInt()
     val remaining = group.targetSize - group.currentSize
-    var showParticipants by rememberSaveable(group.id) { mutableStateOf(false) }
-    var showFinalizeConfirmation by remember { mutableStateOf(false) }
+    var showParticipants by rememberSaveable(group.id) { mutableStateOf(true) } // Mostrar participantes por defecto
 
     StoreGroupScaffold(
         title = "Detalles del grupo",
@@ -357,10 +353,6 @@ private fun StoreActiveContent(
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            GradientButton(
-                text = "Compartir grupo",
-                onClick = { onShare(group) }
-            )
             // Botón "Escanear QR" solo habilitado si estado = PICKUP (cuando se alcanzó la meta)
             if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.PICKUP) {
                 GradientButton(
@@ -376,25 +368,12 @@ private fun StoreActiveContent(
                         "No disponible para este estado"
                 )
             }
-            // Botón "Finalizar anticipadamente" solo si estado = ACTIVE
-            if (group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE) {
-                OutlinedDangerButton(
-                    text = "Finalizar grupo anticipadamente",
-                    onClick = { showFinalizeConfirmation = true }
-                )
-            }
+            // Botón "Compartir grupo" al final
+            GradientButton(
+                text = "Compartir grupo",
+                onClick = { onShare(group) }
+            )
         }
-    }
-
-    if (showFinalizeConfirmation) {
-        ConfirmFinalizeDialog(
-            onDismiss = { showFinalizeConfirmation = false },
-            onConfirm = {
-                showFinalizeConfirmation = false
-                onFinalizeEarly(group)
-                Toast.makeText(context, "Grupo finalizado", Toast.LENGTH_SHORT).show()
-            }
-        )
     }
 }
 
@@ -496,68 +475,17 @@ private fun StoreExpiredContent(
                     total = group.targetSize
                 )
                 Text(
-                    text = "Meta no alcanzada antes del tiempo límite",
-                    color = Color(0xFF6B7280),
+                    text = "Meta no alcanzada",
+                    color = Color(0xFFDC2626),
                     fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp)
                 )
             }
         )
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFFF8FAFC)
-        ) {
-            Text(
-                text = "Este grupo expiró y no generó QR de retiro.",
-                modifier = Modifier.padding(24.dp),
-                color = Color(0xFF475569),
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (onPublishSimilar != null) {
-                GradientButton(
-                    text = "Publicar nueva oferta similar",
-                    icon = Icons.Default.Share,
-                    onClick = onPublishSimilar
-                )
-            }
-            SecondaryButton(
-                text = "Cerrar grupo",
-                onClick = onClose
-            )
-        }
     }
 }
 
-@Composable
-private fun ConfirmFinalizeDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(text = "Finalizar grupo", fontWeight = FontWeight.SemiBold)
-        },
-        text = {
-            Text(text = "¿Seguro que deseas finalizar este grupo antes de tiempo?")
-        },
-        confirmButton = {
-            Button(onClick = onConfirm) {
-                Text("Sí, finalizar")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("Cancelar")
-            }
-        }
-    )
-}
 
 @Composable
 private fun ProgressSection(
@@ -814,9 +742,15 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
                 Column {
                     Text(text = participant.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1A1A1A))
                     Text(
-                        text = "${participant.units} ${if (participant.units == 1) "unidad" else "unidades"} · ${participant.reservationDate}",
+                        text = "${participant.units} ${if (participant.units == 1) "unidad" else "unidades"}",
+                        fontSize = 13.sp,
+                        color = Color(0xFF606060),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = participant.reservationDate,
                         fontSize = 12.sp,
-                        color = Color(0xFF606060)
+                        color = Color(0xFF9CA3AF)
                     )
                 }
             }
