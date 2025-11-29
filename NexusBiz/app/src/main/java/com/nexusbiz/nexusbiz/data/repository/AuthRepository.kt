@@ -592,26 +592,43 @@ class AuthRepository {
             val oldPasswordHash = hashPassword(oldPassword)
             val newPasswordHash = hashPassword(newPassword)
             
-            // Verificar contraseña actual
+            Log.d("AuthRepository", "Cambiando contraseña para usuario: $userId")
+            Log.d("AuthRepository", "Hash de contraseña antigua generado: ${oldPasswordHash.take(20)}...")
+            
+            // Primero obtener el usuario para verificar la contraseña actual
             val user = supabase.from("usuarios")
                 .select {
-                    filter {
-                        eq("id", userId)
-                        eq("password_hash", oldPasswordHash)
-                    }
+                    filter { eq("id", userId) }
                 }
                 .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
             
             if (user == null) {
+                Log.w("AuthRepository", "Usuario con id '$userId' no encontrado")
+                return Result.failure(Exception("Usuario no encontrado"))
+            }
+            
+            // Normalizar ambos hashes antes de comparar (igual que en login)
+            val storedHash = user.passwordHash ?: ""
+            val normalizedStoredHash = normalizeHash(storedHash)
+            val normalizedOldHash = normalizeHash(oldPasswordHash)
+            
+            Log.d("AuthRepository", "Hash almacenado normalizado: ${normalizedStoredHash.take(20)}...")
+            Log.d("AuthRepository", "Hash ingresado normalizado: ${normalizedOldHash.take(20)}...")
+            
+            // Verificar que la contraseña actual sea correcta
+            if (normalizedStoredHash != normalizedOldHash) {
+                Log.w("AuthRepository", "La contraseña actual no coincide")
                 return Result.failure(Exception("Contraseña actual incorrecta"))
             }
             
             // Actualizar contraseña
+            Log.d("AuthRepository", "Actualizando contraseña...")
             supabase.from("usuarios")
                 .update(mapOf("password_hash" to newPasswordHash)) {
                     filter { eq("id", userId) }
                 }
             
+            Log.d("AuthRepository", "Contraseña actualizada exitosamente")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("AuthRepository", "Error al cambiar contraseña: ${e.message}", e)

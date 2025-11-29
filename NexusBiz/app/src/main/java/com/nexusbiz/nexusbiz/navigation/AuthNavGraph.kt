@@ -12,6 +12,7 @@ import com.nexusbiz.nexusbiz.data.model.Store
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
 import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.EnableLocationScreen
+import com.nexusbiz.nexusbiz.ui.screens.auth.ForgotPasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.LoginScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.RegisterScreen
 import com.nexusbiz.nexusbiz.ui.screens.onboarding.OnboardingScreen1
@@ -81,7 +82,7 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                     }
                 },
                 onNavigateToRegister = { navController.navigate(Screen.Register.route) },
-                onNavigateToForgotPassword = { navController.navigate(Screen.ChangePassword.route) },
+                onNavigateToForgotPassword = { navController.navigate(Screen.ForgotPassword.route) },
                 onNavigateToRegisterBodega = { navController.navigate(Screen.BodegaRegistrationModal.route) },
                 isLoading = authViewModel.uiState.value.isLoading,
                 errorMessage = authViewModel.uiState.value.errorMessage,
@@ -121,7 +122,7 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                     }
                 },
                 onNavigateToRegister = { navController.navigate(Screen.BodegaRegistrationModal.route) },
-                onNavigateToForgotPassword = { navController.navigate(Screen.ChangePassword.route) },
+                onNavigateToForgotPassword = { navController.navigate(Screen.ForgotPassword.route) },
                 onNavigateToRegisterBodega = { navController.navigate(Screen.BodegaRegistrationModal.route) },
                 isLoading = authViewModel.uiState.value.isLoading,
                 errorMessage = authViewModel.uiState.value.errorMessage,
@@ -164,6 +165,20 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                     currentUser?.let { user ->
                         authViewModel.changePassword(user.id, oldPassword, newPassword) {
                             navController.popBackStack()
+                        }
+                    }
+                },
+                isLoading = authViewModel.uiState.value.isLoading,
+                errorMessage = authViewModel.uiState.value.errorMessage
+            )
+        }
+        composable(Screen.ForgotPassword.route) {
+            ForgotPasswordScreen(
+                onBack = { navController.popBackStack() },
+                onResetPassword = { alias, newPassword ->
+                    authViewModel.resetPasswordByAlias(alias, newPassword) {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(Screen.ForgotPassword.route) { inclusive = true }
                         }
                     }
                 },

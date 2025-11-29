@@ -132,7 +132,7 @@ fun ChangePasswordScreen(
                     passwordError = null
                 },
                 placeholder = {
-                    Text("Mínimo 8 caracteres", color = Color(0xFF9CA3AF))
+                    Text("Mínimo 6 caracteres", color = Color(0xFF9CA3AF))
                 },
                 singleLine = true,
                 textStyle = LocalTextStyle.current.copy(
@@ -234,8 +234,8 @@ fun ChangePasswordScreen(
                         oldPassword.isEmpty() -> {
                             passwordError = "Ingresa tu contraseña actual"
                         }
-                        newPassword.length < 8 -> {
-                            passwordError = "La nueva contraseña debe tener al menos 8 caracteres"
+                        newPassword.length < 6 -> {
+                            passwordError = "La nueva contraseña debe tener al menos 6 caracteres"
                         }
                         newPassword != confirmPassword -> {
                             passwordError = "Las contraseñas no coinciden"
@@ -257,7 +257,7 @@ fun ChangePasswordScreen(
                     containerColor = Color(0xFF10B981),
                     contentColor = Color.White
                 ),
-                enabled = !isLoading && oldPassword.isNotEmpty() && newPassword.length >= 8 && confirmPassword.isNotEmpty()
+                enabled = !isLoading && oldPassword.isNotEmpty() && newPassword.length >= 6 && confirmPassword.isNotEmpty()
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(

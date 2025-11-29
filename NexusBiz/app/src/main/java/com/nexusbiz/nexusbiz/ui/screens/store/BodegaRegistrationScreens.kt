@@ -540,7 +540,9 @@ fun BodegaValidateRucScreen(
                                         unfocusedBorderColor = Color(0xFFF4F4F7),
                                         focusedContainerColor = Color.White,
                                         unfocusedContainerColor = Color.White,
-                                        cursorColor = accent
+                                        cursorColor = accent,
+                                        focusedTextColor = Color(0xFF1A1A1A),
+                                        unfocusedTextColor = Color(0xFF1A1A1A)
                                     )
                                 )
                             }
@@ -880,7 +882,9 @@ fun BodegaCommercialDataScreen(
                                 unfocusedBorderColor = Color(0xFFF4F4F7),
                                 focusedContainerColor = Color.White,
                                 unfocusedContainerColor = Color.White,
-                                cursorColor = accent
+                                cursorColor = accent,
+                                focusedTextColor = Color(0xFF1A1A1A),
+                                unfocusedTextColor = Color(0xFF1A1A1A)
                             )
                         )
                         Text(

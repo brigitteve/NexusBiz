@@ -38,37 +38,51 @@ object Validators {
 
     /**
      * Valida alias de usuario (cliente o bodega)
-     * - Letras, números, puntos, guiones y guiones bajos
+     * - Letras, números y caracteres especiales comunes
      * - Sin espacios
      * - Máximo 30 caracteres
      */
     fun isValidAlias(value: String): Boolean {
         if (value.isBlank() || value.length > 30) return false
-        return Regex("^[A-Za-z0-9._-]+$").matches(value)
+        // Permite letras, números y caracteres especiales comunes (sin espacios)
+        return Regex("^[A-Za-z0-9._\\-!@#\$%^&*()+=\\[\\]{}|;:'\",.<>?/~`]+$").matches(value)
     }
 
     /**
-     * Sanitiza alias permitiendo solo letras, números, puntos, guiones y guiones bajos
+     * Sanitiza alias permitiendo letras, números y caracteres especiales comunes
      */
     fun sanitizeAlias(value: String): String {
-        return value.replace(Regex("[^A-Za-z0-9._-]"), "").take(30)
+        // Permite letras, números y caracteres especiales comunes (sin espacios)
+        return value.replace(Regex("[^A-Za-z0-9._\\-!@#\$%^&*()+=\\[\\]{}|;:'\",.<>?/~`]"), "").take(30)
+    }
+    
+    /**
+     * Valida contraseña
+     * - Mínimo 6 caracteres
+     * - Permite cualquier carácter (letras, números, caracteres especiales)
+     */
+    fun isValidPassword(value: String): Boolean {
+        return value.length >= 6
     }
     
     /**
      * Valida dirección
-     * - Letras, números, espacios, comas y guiones
+     * - Letras, números, espacios, comas, puntos, guiones, numerales, barras, paréntesis, dos puntos, punto y coma
      * - Mínimo 5 caracteres
+     * - Caracteres permitidos: A-Z, a-z, 0-9, espacios, ., ,, -, #, /, (, ), :, ;
      */
     fun isValidAddress(value: String): Boolean {
         if (value.isBlank() || value.length < 5) return false
-        return Regex("^[A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,-]+$").matches(value.trim())
+        return Regex("^[A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,#/():;-]+$").matches(value.trim())
     }
     
     /**
-     * Sanitiza dirección
+     * Sanitiza dirección permitiendo caracteres comunes en direcciones
+     * Permite: letras, números, espacios, puntos, comas, guiones, numerales (#), 
+     * barras (/), paréntesis, dos puntos (:), punto y coma (;)
      */
     fun sanitizeAddress(value: String): String {
-        return value.replace(Regex("[^A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,-]"), "")
+        return value.replace(Regex("[^A-Za-z0-9ÁÉÍÓÚáéíóúñÑ .,#/():;-]"), "")
     }
     
     /**
@@ -135,7 +149,7 @@ object Validators {
     object ErrorMessages {
         const val INVALID_PHONE = "Número de teléfono inválido"
         const val INVALID_NAME = "Solo se permiten letras"
-        const val INVALID_ALIAS = "Alias inválido (usa letras, números o .-_ )"
+        const val INVALID_ALIAS = "Alias inválido (usa letras, números o caracteres especiales)"
         const val INVALID_ADDRESS = "Dirección inválida"
         const val INVALID_PRICE = "Precio inválido"
         const val INVALID_GROUP_PRICE = "El precio grupal debe ser menor al normal"

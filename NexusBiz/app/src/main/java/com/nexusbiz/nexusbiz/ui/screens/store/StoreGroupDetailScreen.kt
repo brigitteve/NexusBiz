@@ -420,7 +420,7 @@ private fun StoreActiveContent(
         )
 
         ParticipantsExpandableList(
-            title = "Ver participantes (${participants.size} personas · ${totalReservedUnits} unidades)",
+            title = "Participantes (${participants.size} personas/${totalReservedUnits} unidades)",
             participants = participants,
             expanded = showParticipants,
             onToggle = { showParticipants = !showParticipants }
@@ -594,9 +594,9 @@ private fun ProgressSection(
         ) {
             Column {
                 Text(text = "Progreso de reservas", color = StoreMutedText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = StoreSubtleText, fontSize = 12.sp)
+                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = StoreSubtleText, fontSize = 14.sp)
             }
-            Text(text = "$reserved/$total", color = StoreBodyText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text = "$reserved/$total", color = StoreBodyText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         LinearProgressIndicator(
             progress = progressPercent / 100f,
@@ -804,8 +804,8 @@ private fun InfoPill(
                 Icon(icon, contentDescription = null, tint = StorePrimaryDark, modifier = Modifier.size(18.dp))
             }
             Column {
-                Text(text = label, fontSize = 12.sp, color = StoreSubtleText)
-                Text(text = value, fontSize = 15.sp, color = StoreBodyText, fontWeight = FontWeight.SemiBold)
+                Text(text = label, fontSize = 10.sp, color = StoreSubtleText)
+                Text(text = value, fontSize = 10.sp, color = StoreBodyText, fontWeight = FontWeight.SemiBold)
             }
         }
     }

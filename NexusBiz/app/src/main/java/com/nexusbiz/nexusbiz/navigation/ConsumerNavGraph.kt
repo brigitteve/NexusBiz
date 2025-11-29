@@ -35,6 +35,7 @@ import com.nexusbiz.nexusbiz.ui.screens.groups.PickupQRScreen
 import com.nexusbiz.nexusbiz.ui.screens.home.HomeScreen
 import com.nexusbiz.nexusbiz.ui.screens.product.ProductDetailScreen
 import com.nexusbiz.nexusbiz.ui.screens.product.ReservationSuccessScreen
+import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.EditProfileScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.ProfileScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.SettingsScreen
@@ -844,6 +845,21 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 onBack = { navController.popBackStack() },
                 isLoading = false,
                 errorMessage = null
+            )
+        }
+        composable(Screen.ChangePassword.route) {
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            ChangePasswordScreen(
+                onBack = { navController.popBackStack() },
+                onChangePassword = { oldPassword, newPassword ->
+                    currentUser?.let { user ->
+                        authViewModel.changePassword(user.id, oldPassword, newPassword) {
+                            navController.popBackStack()
+                        }
+                    }
+                },
+                isLoading = authViewModel.uiState.value.isLoading,
+                errorMessage = authViewModel.uiState.value.errorMessage
             )
         }
         composable(Screen.Settings.route) {

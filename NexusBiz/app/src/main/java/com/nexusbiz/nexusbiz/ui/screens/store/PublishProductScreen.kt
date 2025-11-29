@@ -73,13 +73,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
+import com.nexusbiz.nexusbiz.util.ImageUriHelper
 import java.io.File
-import java.io.FileOutputStream
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.os.Environment
-import java.io.InputStream
 
 @Composable
 fun PublishProductScreen(
@@ -94,21 +89,23 @@ fun PublishProductScreen(
     var targetUnits by remember { mutableStateOf("") }
     var duration by remember { mutableStateOf("24") } // Por defecto 24h
     var imageUri by remember { mutableStateOf<Uri?>(null) }
-    var imageUrl by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf<String?>(null) }
     var normalPriceError by remember { mutableStateOf<String?>(null) }
     var groupPriceError by remember { mutableStateOf<String?>(null) }
     var targetUnitsError by remember { mutableStateOf<String?>(null) }
     var showImagePickerDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    
+    // Variable para almacenar el archivo temporal de la cámara
+    var cameraPhotoFile by remember { mutableStateOf<File?>(null) }
 
     // Launcher para galería
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
+            // La URI de galería ya es content:// y legible
             imageUri = it
-            imageUrl = it.toString()
         }
     }
 
@@ -116,9 +113,14 @@ fun PublishProductScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && imageUri != null) {
-            // La imagen ya está guardada en imageUri
-            imageUrl = imageUri.toString()
+        if (success && cameraPhotoFile != null) {
+            // La foto fue guardada exitosamente, obtener URI con FileProvider
+            val photoUri = ImageUriHelper.getUriForFile(context, cameraPhotoFile!!)
+            if (photoUri != null) {
+                imageUri = photoUri
+            } else {
+                android.util.Log.e("PublishProductScreen", "Error al obtener URI con FileProvider para foto de cámara")
+            }
         }
     }
 
@@ -191,9 +193,12 @@ fun PublishProductScreen(
             val group = groupPrice.toDoubleOrNull() ?: 0.0
             val target = targetUnits.toIntOrNull() ?: 0
             val durationHours = duration.toIntOrNull() ?: 12
-            // Usar la URI de la imagen si existe, o cadena vacía si no hay imagen
-            val finalImageUrl = imageUri?.toString() ?: ""
-            onPublish(name, finalImageUrl, "General", normal, group, target, target, finalImageUrl, durationHours)
+            
+            // IMPORTANTE: Enviar la URI directamente, no convertir a string
+            // StoreNavGraph se encargará de validar y subir la imagen
+            // Si no hay imagen, enviar null (no string vacío ni placeholder)
+            val imageUriString = imageUri?.toString() ?: ""
+            onPublish(name, imageUriString, "General", normal, group, target, target, imageUriString, durationHours)
         }
     }
 
@@ -560,13 +565,27 @@ fun PublishProductScreen(
                         TextButton(
                             onClick = {
                                 showImagePickerDialog = false
-                                // Crear archivo temporal para la foto
+                                // Crear archivo temporal para la foto usando ImageUriHelper
                                 try {
-                                    val photoFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "product_photo_${System.currentTimeMillis()}.jpg")
-                                    val photoUri = Uri.fromFile(photoFile)
-                                    imageUri = photoUri
-                                    cameraLauncher.launch(photoUri)
+                                    val photoFile = ImageUriHelper.createTempImageFile(context, "product_photo")
+                                    if (photoFile != null) {
+                                        // Obtener URI con FileProvider (content://)
+                                        val photoUri = ImageUriHelper.getUriForFile(context, photoFile)
+                                        if (photoUri != null) {
+                                            cameraPhotoFile = photoFile
+                                            cameraLauncher.launch(photoUri)
+                                        } else {
+                                            android.util.Log.e("PublishProductScreen", "Error al obtener URI con FileProvider")
+                                            // Si falla, usar galería como alternativa
+                                            galleryLauncher.launch("image/*")
+                                        }
+                                    } else {
+                                        android.util.Log.e("PublishProductScreen", "Error al crear archivo temporal para foto")
+                                        // Si falla, usar galería como alternativa
+                                        galleryLauncher.launch("image/*")
+                                    }
                                 } catch (e: Exception) {
+                                    android.util.Log.e("PublishProductScreen", "Error al preparar cámara: ${e.message}", e)
                                     // Si falla, usar galería como alternativa
                                     galleryLauncher.launch("image/*")
                                 }

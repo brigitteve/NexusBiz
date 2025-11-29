@@ -79,14 +79,14 @@ fun EditProfileScreen(
     fun validateAndSave() {
         localError = null
         
-        // Validar nombre
-        val sanitizedName = Validators.sanitizeName(name)
-        if (!Validators.isValidName(sanitizedName)) {
-            localError = Validators.ErrorMessages.INVALID_NAME
+        // Validar alias
+        val sanitizedAlias = Validators.sanitizeAlias(name)
+        if (!Validators.isValidAlias(sanitizedAlias)) {
+            localError = Validators.ErrorMessages.INVALID_ALIAS
             return
         }
         
-        onSave(sanitizedName)
+        onSave(sanitizedAlias)
     }
 
     Scaffold(
@@ -136,7 +136,7 @@ fun EditProfileScreen(
                     label = "Alias",
                     value = name,
                     onValueChange = { 
-                        val sanitized = Validators.sanitizeName(it)
+                        val sanitized = Validators.sanitizeAlias(it)
                         name = sanitized
                     },
                     placeholder = "Tu alias",
@@ -275,7 +275,9 @@ private fun LabeledField(
                 unfocusedContainerColor = Color.White,
                 focusedIndicatorColor = accent,
                 unfocusedIndicatorColor = Color(0xFFF4F4F7),
-                cursorColor = accent
+                cursorColor = accent,
+                focusedTextColor = Color(0xFF1A1A1A),
+                unfocusedTextColor = Color(0xFF1A1A1A)
             ),
             keyboardOptions = keyboardOptions
         )

@@ -169,11 +169,7 @@ fun ProfileScreen(
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Text(
-                            text = "••• $trimmedAlias",
-                            color = Color(0xFFE5E7EB),
-                            fontSize = 13.sp
-                        )
+
                         Spacer(modifier = Modifier.height(10.dp))
                         Surface(
                             shape = RoundedCornerShape(18.dp),

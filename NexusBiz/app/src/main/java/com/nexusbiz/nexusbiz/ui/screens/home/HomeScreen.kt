@@ -195,13 +195,6 @@ fun HomeScreen(
                                 color = Color.White
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = currentUser?.alias?.takeIf { it.isNotBlank() }?.let { 
-                                    if (it.length >= 4) "*** ${it.takeLast(4)}" else "*** $it"
-                                } ?: "",
-                                fontSize = 14.sp,
-                                color = Color(0xFFE5E7EB)
-                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
@@ -317,6 +310,7 @@ fun HomeScreen(
         Scaffold(
             topBar = {
                 Surface(
+                    modifier = Modifier.padding(top = 10.dp),
                     tonalElevation = 2.dp,
                     color = Color.White
                 ) {

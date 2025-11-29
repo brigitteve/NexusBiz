@@ -1,9 +1,6 @@
 package com.nexusbiz.nexusbiz.ui.components
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Home
@@ -44,14 +41,11 @@ fun BottomNavBar(
     Surface(
         modifier = modifier,
         color = Color.White,
-        shadowElevation = 6.dp,
-        border = BorderStroke(2.dp, Color(0xFFE5E7EB)),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        tonalElevation = 6.dp
     ) {
         NavigationBar(
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp,
-            modifier = Modifier.height(72.dp)
+            containerColor = Color.White,
+            tonalElevation = 0.dp
         ) {
             items.forEach { item ->
                 val selected = currentRoute == item.route

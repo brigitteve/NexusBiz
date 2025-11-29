@@ -1,6 +1,7 @@
 package com.nexusbiz.nexusbiz.navigation
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,11 @@ import com.nexusbiz.nexusbiz.data.repository.AuthRepository
 import com.nexusbiz.nexusbiz.data.repository.OfferRepository
 import com.nexusbiz.nexusbiz.data.repository.ProductRepository
 import com.nexusbiz.nexusbiz.data.repository.StoreRepository
+import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
+import com.nexusbiz.nexusbiz.util.ImageUriHelper
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
+import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.MyProductsScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.OfferPublishedScreen
 import com.nexusbiz.nexusbiz.ui.screens.store.PublishProductScreen
@@ -198,11 +204,61 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
             PublishProductScreen(
                 storeAddress = storeSnapshot?.address ?: "",
                 onPublish = { name, imageUrl, cat, normalPrice, groupPrice, min, max, productImage, durationHours ->
-                    val userSnapshot = currentUser
                     scope.launch {
                         isLoading = true
                         errorMessage = null
                         try {
+                            // Obtener usuario: primero intentar desde currentUser, si no está disponible, obtenerlo desde ownerId de la bodega
+                            var userSnapshot = currentUser
+                            if (userSnapshot == null && storeSnapshot?.ownerId != null) {
+                                // Intentar obtener el usuario desde el ownerId de la bodega
+                                try {
+                                    val remoteUser = SupabaseManager.client.from("usuarios")
+                                        .select {
+                                            filter { eq("id", storeSnapshot.ownerId) }
+                                        }
+                                        .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+                                    
+                                    if (remoteUser != null) {
+                                        // Convertir RemoteUser a User local
+                                        userSnapshot = com.nexusbiz.nexusbiz.data.model.User(
+                                            id = remoteUser.id,
+                                            alias = remoteUser.alias,
+                                            passwordHash = remoteUser.passwordHash ?: "",
+                                            fechaNacimiento = remoteUser.fechaNacimiento ?: "",
+                                            district = remoteUser.district,
+                                            email = remoteUser.email,
+                                            avatar = remoteUser.avatar,
+                                            latitude = remoteUser.latitude,
+                                            longitude = remoteUser.longitude,
+                                            points = remoteUser.points,
+                                            tier = when (remoteUser.gamificationLevel) {
+                                                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> com.nexusbiz.nexusbiz.data.model.UserTier.GOLD
+                                                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> com.nexusbiz.nexusbiz.data.model.UserTier.SILVER
+                                                else -> com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE
+                                            },
+                                            gamificationLevel = when (remoteUser.gamificationLevel) {
+                                                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.ORO
+                                                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.PLATA
+                                                else -> com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE
+                                            },
+                                            badges = remoteUser.badges,
+                                            streak = remoteUser.streak,
+                                            completedGroups = remoteUser.completedGroups,
+                                            totalSavings = remoteUser.totalSavings,
+                                            userType = when (remoteUser.userType) {
+                                                com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                                                else -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                                            },
+                                            createdAt = remoteUser.createdAt
+                                        )
+                                        android.util.Log.d("StoreNavGraph", "Usuario obtenido desde ownerId: ${userSnapshot.id}")
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("StoreNavGraph", "Error al obtener usuario desde ownerId: ${e.message}", e)
+                                }
+                            }
+                            
                             if (userSnapshot == null) {
                                 errorMessage = "Usuario no encontrado. Por favor, inicia sesión nuevamente."
                                 isLoading = false
@@ -246,34 +302,62 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                                 }
                             }
                             
-                            // CORRECCIÓN: Subir imagen a Supabase Storage antes de crear la oferta
+                            // REFACTORIZADO: Subir imagen a Supabase Storage antes de crear la oferta
                             // Generar ID de oferta primero para nombrar el archivo
                             val offerId = java.util.UUID.randomUUID().toString()
-                            var finalImageUrl = productImage.ifEmpty { "https://via.placeholder.com/150" }
-                            
-                            // Si hay una imagen seleccionada (URI local), subirla a Supabase Storage
-                            if (productImage.isNotBlank() && (productImage.startsWith("content://") || productImage.startsWith("file://"))) {
-                                try {
-                                    val imageUri = android.net.Uri.parse(productImage)
-                                    val uploadedUrl = offerRepository.uploadOfferImage(context, imageUri, offerId)
-                                    if (uploadedUrl != null) {
-                                        finalImageUrl = uploadedUrl
-                                        android.util.Log.d("StoreNavGraph", "Imagen subida exitosamente: $finalImageUrl")
-                                    } else {
-                                        android.util.Log.w("StoreNavGraph", "No se pudo subir la imagen, usando placeholder")
-                                        finalImageUrl = "https://via.placeholder.com/150"
+                            var finalImageUrl: String? = null
+
+                            if (productImage.isNotBlank()) {
+                                // Validar si es URL remota o URI local
+                                if (com.nexusbiz.nexusbiz.util.ImageUriHelper.isRemoteUrl(productImage)) {
+                                    // Ya es una URL remota válida, usarla directamente
+                                    finalImageUrl = productImage
+                                    android.util.Log.d("StoreNavGraph", "Imagen es URL remota, usando directamente: $finalImageUrl")
+                                } else {
+                                    // Es una URI local, convertir a Uri y subir
+                                    try {
+                                        val localUri = Uri.parse(productImage)
+                                        
+                                        // Validar que sea una URI local válida
+                                        if (com.nexusbiz.nexusbiz.util.ImageUriHelper.isLocalUri(localUri)) {
+                                            android.util.Log.d("StoreNavGraph", "Subiendo imagen local para oferta: $offerId")
+                                            
+                                            // Subir imagen usando el nuevo método que retorna Result
+                                            val uploadResult = offerRepository.uploadOfferImage(context, localUri, offerId)
+                                            uploadResult.fold(
+                                                onSuccess = { url ->
+                                                    finalImageUrl = url
+                                                    android.util.Log.d("StoreNavGraph", "Imagen subida exitosamente: $url")
+                                                },
+                                                onFailure = { error ->
+                                                    android.util.Log.e("StoreNavGraph", "Error al subir imagen: ${error.message}", error)
+                                                    // NO usar placeholder, dejar null para que se cree la oferta sin imagen
+                                                    // o mostrar error al usuario
+                                                    errorMessage = "Error al subir imagen: ${error.message}"
+                                                    isLoading = false
+                                                    return@launch
+                                                }
+                                            )
+                                        } else {
+                                            android.util.Log.w("StoreNavGraph", "URI no es local ni remota válida: $productImage")
+                                            // No usar placeholder, continuar sin imagen
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("StoreNavGraph", "Error al parsear URI de imagen: ${e.message}", e)
+                                        // No usar placeholder, continuar sin imagen
                                     }
-                                } catch (e: Exception) {
-                                    android.util.Log.e("StoreNavGraph", "Error al subir imagen: ${e.message}", e)
-                                    finalImageUrl = "https://via.placeholder.com/150"
                                 }
                             }
                             
+                            // Si no hay imagen, usar null (no placeholder)
+                            // El campo image_url en la BD acepta null
+                            
                             // Crear oferta directamente (no crear grupo)
+                            // Usar finalImageUrl si existe, sino null (no placeholder)
                             val offerResult = offerRepository.createOffer(
                                 productName = name,
                                 description = "",
-                                imageUrl = finalImageUrl,
+                                imageUrl = finalImageUrl ?: "",
                                 normalPrice = normalPrice,
                                 groupPrice = groupPrice,
                                 targetUnits = min,
@@ -609,6 +693,21 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                 },
                 onNavigateToDashboard = { navController.navigate(Screen.StoreDashboard.route) },
                 onNavigateToOffers = { navController.navigate(Screen.MyProducts.route) }
+            )
+        }
+        composable(Screen.ChangePassword.route) {
+            val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            ChangePasswordScreen(
+                onBack = { navController.popBackStack() },
+                onChangePassword = { oldPassword, newPassword ->
+                    currentUser?.let { user ->
+                        authViewModel.changePassword(user.id, oldPassword, newPassword) {
+                            navController.popBackStack()
+                        }
+                    }
+                },
+                isLoading = authViewModel.uiState.value.isLoading,
+                errorMessage = authViewModel.uiState.value.errorMessage
             )
         }
         composable(Screen.StoreSubscriptionPro.route) {

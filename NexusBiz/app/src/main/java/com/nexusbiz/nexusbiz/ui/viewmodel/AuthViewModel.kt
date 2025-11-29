@@ -160,6 +160,27 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         }
     }
     
+    fun resetPasswordByAlias(
+        alias: String,
+        newPassword: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            authRepository.updatePasswordHashByAlias(alias, newPassword)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                    onSuccess()
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        errorMessage = error.message
+                    )
+                }
+        }
+    }
+    
     fun logout() {
         viewModelScope.launch {
             authRepository.logout()

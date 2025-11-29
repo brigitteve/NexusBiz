@@ -103,24 +103,64 @@ class OfferRepository {
 
     /**
      * Sube la imagen de una oferta a Supabase Storage y devuelve la URL pública.
+     * 
+     * REFACTORIZADO: 
+     * - Valida que la URI sea local antes de subir
+     * - Convierte automáticamente file:// a content://
+     * - Retorna Result para manejo de errores explícito
+     * - Nunca retorna null silenciosamente
      *
      * @param context Contexto necesario para leer el archivo desde la URI local
-     * @param imageUri URI local de la imagen (content:// o file://)
+     * @param imageUri URI local de la imagen (content:// o file://) o URL remota (http/https)
      * @param offerId ID de la oferta para nombrar el archivo de forma determinista
+     * @return Result con la URL pública o error descriptivo
      */
     suspend fun uploadOfferImage(
         context: Context,
         imageUri: Uri,
         offerId: String
-    ): String? {
-        return SupabaseStorage.uploadPublicImage(
-            context = context,
-            imageUri = imageUri,
-            pathBuilder = { extension ->
-                // Guardar imágenes de ofertas en una carpeta dedicada
-                "offers/$offerId.$extension"
+    ): Result<String> {
+        return try {
+            // Si la URI es una URL remota, retornarla directamente
+            val uriString = imageUri.toString()
+            if (com.nexusbiz.nexusbiz.util.ImageUriHelper.isRemoteUrl(uriString)) {
+                Log.d("OfferRepository", "URI es URL remota, retornando directamente: $uriString")
+                return Result.success(uriString)
             }
-        )
+            
+            // Validar que sea una URI local
+            if (!com.nexusbiz.nexusbiz.util.ImageUriHelper.isLocalUri(imageUri)) {
+                return Result.failure(Exception("URI no es local ni remota válida: $uriString"))
+            }
+            
+            Log.d("OfferRepository", "Subiendo imagen local para oferta: $offerId")
+            
+            // Subir a Supabase Storage
+            val publicUrl = SupabaseStorage.uploadPublicImage(
+                context = context,
+                imageUri = imageUri,
+                pathBuilder = { extension ->
+                    // Guardar imágenes de ofertas en una carpeta dedicada
+                    "offers/$offerId.$extension"
+                }
+            )
+            
+            if (publicUrl == null) {
+                // Verificar si el error es por bucket no encontrado
+                val errorMessage = if (uriString.contains("placeholder") || uriString.isBlank()) {
+                    "No se proporcionó una imagen válida para subir."
+                } else {
+                    "No se pudo subir la imagen. Verifica que el bucket 'product-images' o 'public' exista en Supabase Storage. Revisa los logs para más detalles."
+                }
+                Result.failure(Exception(errorMessage))
+            } else {
+                Log.d("OfferRepository", "Imagen subida exitosamente: $publicUrl")
+                Result.success(publicUrl)
+            }
+        } catch (e: Exception) {
+            Log.e("OfferRepository", "Error al subir imagen de oferta: ${e.message}", e)
+            Result.failure(e)
+        }
     }
     
     suspend fun fetchAllActiveOffers(district: String? = null): List<Offer> {
@@ -252,12 +292,13 @@ class OfferRepository {
             
             // Crear objeto OfferInsert serializable para la inserción
             // Usamos una clase específica para garantizar que "target_units" SIEMPRE se envíe a Supabase
+            // IMPORTANTE: imageUrl puede ser null si no hay imagen (no usar placeholder)
             val offerInsert = OfferInsert(
                 id = offerId,
                 productName = productName,
                 productKey = productName.lowercase().trim(),
                 description = description.takeIf { it.isNotBlank() },
-                imageUrl = imageUrl.takeIf { it.isNotBlank() },
+                imageUrl = imageUrl.takeIf { it.isNotBlank() && !it.contains("placeholder") },
                 normalPrice = normalPrice,
                 groupPrice = groupPrice,
                 targetUnits = targetUnits,
