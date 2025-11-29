@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="NexusBiz">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-11-29T05:21:52.008650900Z">
+        <DropdownSelection timestamp="2025-11-29T05:39:24.238355Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="PhysicalDevice" identifier="serial=4THMTGDAZXEQQKZH" />

@@ -121,12 +121,32 @@ fun PickupQRScreen(
         return
     }
 
+    // Si no hay reserva del usuario, no podemos generar un QR válido
+    if (userReservation == null) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "No se encontró una reserva activa para generar el QR.",
+                    textAlign = TextAlign.Center,
+                    fontSize = 16.sp,
+                    color = Color(0xFF606060)
+                )
+                Button(onClick = onBack) {
+                    Text("Volver")
+                }
+            }
+        }
+        return
+    }
+
     // Obtener datos de la reserva del usuario
-    val userReservationQuantity = userReservation?.units ?: activeGroup?.activeParticipants
-        ?.firstOrNull { it.userId == currentUser?.id }
-        ?.reservedUnits
-        ?.coerceAtLeast(0)
-        ?: 0
+    val userReservationQuantity = userReservation.units.coerceAtLeast(0)
     
     // Calcular precios y totales
     val groupPrice = activeOffer?.groupPrice ?: (activeGroup?.groupPrice?.takeIf { it > 0 } ?: activeGroup?.normalPrice ?: 0.0)
@@ -153,7 +173,9 @@ fun PickupQRScreen(
     }
     
     // Generar código QR basado en la reserva
-    val reservationCode = userReservation?.id ?: activeGroup?.qrCode ?: ""
+    // IMPORTANTE: El QR debe contener SIEMPRE el ID de la reserva,
+    // que es lo que escaneará el bodeguero para validarla.
+    val reservationCode = userReservation.id
 
     val handleNavigate = {
         val query = Uri.encode(storeAddress)
@@ -234,7 +256,7 @@ fun PickupQRScreen(
                     ) {
                         // QR Grande
                         QRCodeDisplay(
-                            data = reservationCode.ifEmpty { (userReservation?.id ?: activeGroup?.id ?: "") },
+                            data = reservationCode,
                             modifier = Modifier.size(280.dp),
                             size = 280
                         )

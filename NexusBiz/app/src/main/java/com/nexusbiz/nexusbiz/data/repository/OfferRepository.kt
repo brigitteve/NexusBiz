@@ -181,6 +181,12 @@ class OfferRepository {
                 Log.w("OfferRepository", "Oferta no encontrada en BD: $offerId")
                 null
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancelación normal cuando el scope de Compose (rememberCoroutineScope, etc.) sale de composición.
+            // No es un error real de Supabase; re-lanzamos la excepción para que la corrutina se cancele
+            // sin marcar la oferta como "no encontrada".
+            Log.d("OfferRepository", "getOfferById cancelado por salida de composición: ${e.message}")
+            throw e
         } catch (e: Exception) {
             Log.e("OfferRepository", "Error al obtener oferta $offerId: ${e.message}", e)
             Log.e("OfferRepository", "Stack trace: ${e.stackTraceToString()}")
