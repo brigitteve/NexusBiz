@@ -463,7 +463,9 @@ private fun StyledRegisterField(
                 focusedContainerColor = Color(0xFFF3F4F6),
                 unfocusedContainerColor = Color(0xFFF3F4F6),
                 disabledContainerColor = Color(0xFFF3F4F6),
-                errorContainerColor = Color(0xFFF3F4F6)
+                errorContainerColor = Color(0xFFF3F4F6),
+                focusedTextColor = Color(0xFF1A1A1A),
+                unfocusedTextColor = Color(0xFF1A1A1A)
             ),
             isError = errorMessage != null,
             supportingText = errorMessage?.let { 

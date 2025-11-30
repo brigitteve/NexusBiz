@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation.layout.android)
     implementation(libs.androidx.compose.foundation.layout.android)
     implementation(libs.androidx.compose.foundation.layout.android)
+    implementation(libs.androidx.compose.foundation.layout.android)
     kapt(libs.androidx.room.compiler)
     
     // Network

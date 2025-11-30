@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,14 +59,28 @@ fun EditProfileScreen(
     onSave: (String) -> Unit,
     onBack: () -> Unit,
     isLoading: Boolean = false,
-    errorMessage: String? = null
+    errorMessage: String? = null,
+    onNavigateToLogin: (() -> Unit)? = null
 ) {
+    // Si el usuario es null, navegar a Login automáticamente (solo si se proporciona el callback)
+    LaunchedEffect(user, onNavigateToLogin) {
+        if (user == null && onNavigateToLogin != null) {
+            // Pequeño delay para evitar navegación durante la transición
+            kotlinx.coroutines.delay(100)
+            try {
+                onNavigateToLogin()
+            } catch (e: Exception) {
+                android.util.Log.e("EditProfileScreen", "Error al navegar a Login: ${e.message}", e)
+            }
+        }
+    }
+    
     if (user == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("Usuario no encontrado")
+            CircularProgressIndicator(color = Color(0xFF10B981))
         }
         return
     }

@@ -13,7 +13,6 @@ sealed class Screen(val route: String) {
     object ChangePassword : Screen("change_password")
     object ForgotPassword : Screen("forgot_password")
     object SelectRole : Screen("select_role")
-    object EnableLocation : Screen("enable_location")
     object SelectDistrict : Screen("select_district")
     
     // Main

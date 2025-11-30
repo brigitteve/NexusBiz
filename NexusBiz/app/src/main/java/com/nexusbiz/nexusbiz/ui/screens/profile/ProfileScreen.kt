@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,8 +56,18 @@ fun ProfileScreen(
     onTermsAndPrivacy: () -> Unit,
     onLogout: () -> Unit,
     onNavigateToHome: () -> Unit,
-    onNavigateToMyGroups: () -> Unit
+    onNavigateToMyGroups: () -> Unit,
+    onNavigateToLogin: (() -> Unit)? = null
 ) {
+    // Si el usuario es null, navegar a Login automáticamente (solo si se proporciona el callback)
+    LaunchedEffect(user, onNavigateToLogin) {
+        if (user == null && onNavigateToLogin != null) {
+            // Pequeño delay para evitar navegación durante la transición
+            kotlinx.coroutines.delay(100)
+            onNavigateToLogin()
+        }
+    }
+    
     if (user == null) {
         Box(
             modifier = Modifier
@@ -64,7 +75,7 @@ fun ProfileScreen(
                 .background(Color(0xFFF4F4F7)),
             contentAlignment = Alignment.Center
         ) {
-            Text("Usuario no encontrado")
+            CircularProgressIndicator(color = Color(0xFF10B981))
         }
         return
     }

@@ -14,6 +14,10 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -83,19 +87,20 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 }
             }
             
-            // Obtener productos del distrito del usuario Y todas las ofertas activas
+            // Obtener productos y ofertas del distrito del usuario
             LaunchedEffect(selectedCategory, searchQuery, userDistrict) {
                 appViewModel.fetchProducts(userDistrict, selectedCategory, searchQuery)
-                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD para mostrar ofertas reales
-                appViewModel.fetchAllActiveOffers(userDistrict)
+                // Filtrar ofertas por el distrito del usuario
+                appViewModel.fetchAllActiveOffers(userDistrict.takeIf { it.isNotBlank() })
             }
             
             // INTEGRACIÓN REALTIME: Iniciar suscripción en tiempo real para HomeScreen (cliente)
-            // Escucha cambios en ofertas del distrito y reservas del usuario
+            // Escucha cambios en las ofertas del distrito del usuario
             // Cuando hay cambios, las ofertas se actualizan automáticamente y las cards se mueven entre secciones
             val currentUserId = currentUser?.id
-            LaunchedEffect(userDistrict, currentUserId) {
-                if (userDistrict.isNotBlank() && currentUserId != null) {
+            LaunchedEffect(currentUserId, userDistrict) {
+                if (currentUserId != null && userDistrict.isNotBlank()) {
+                    // Filtrar por distrito para que el usuario vea solo las ofertas de su distrito en tiempo real
                     appViewModel.startRealtimeUpdates(
                         com.nexusbiz.nexusbiz.ui.viewmodel.RealtimeContext(
                             district = userDistrict,
@@ -145,6 +150,10 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 },
                 onDistrictChange = { newDistrict ->
                     userDistrict = newDistrict
+                    // Refrescar inmediatamente las ofertas y productos del nuevo distrito
+                    // Esto asegura que las ofertas expiradas/inactivas no aparezcan
+                    appViewModel.fetchProducts(newDistrict, selectedCategory, searchQuery)
+                    appViewModel.fetchAllActiveOffers(newDistrict.takeIf { it.isNotBlank() })
                 },
                 onNavigateToProfile = { navController.navigate(Screen.Profile.route) },
                 onNavigateToMyGroups = { navController.navigate(Screen.MyGroups.route) },
@@ -203,15 +212,75 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val appUiState by appViewModel.uiState.collectAsStateWithLifecycle()
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val userDistrict = currentUser?.district?.takeIf { it.isNotBlank() } ?: "Trujillo"
+            
+            // Estado para el producto y carga
+            var product by remember(productId) { mutableStateOf<com.nexusbiz.nexusbiz.data.model.Product?>(null) }
+            var isLoadingProduct by remember(productId) { mutableStateOf(true) }
+            
             // Refrescar productos y TODAS las ofertas activas cuando cambia el productId o el usuario
             LaunchedEffect(productId, currentUser?.id, userDistrict) {
+                isLoadingProduct = true
+                // Primero intentar obtener el producto de la lista actual
+                val productFromList = appUiState.products.firstOrNull { it.id == productId }
+                if (productFromList != null) {
+                    product = productFromList
+                    isLoadingProduct = false
+                } else {
+                    // Si no está en la lista, intentar obtenerlo directamente del repositorio
+                    try {
+                        val directProduct = productRepository.getProductById(productId)
+                        if (directProduct != null) {
+                            product = directProduct
+                            isLoadingProduct = false
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ConsumerNavGraph", "Error al obtener producto: ${e.message}", e)
+                    }
+                }
+                
+                // Cargar productos y ofertas en paralelo
                 appViewModel.fetchProducts(userDistrict, null, null)
-                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD (modo cliente)
-                appViewModel.fetchAllActiveOffers(userDistrict)
+                // IMPORTANTE: Cargar TODAS las ofertas activas de la BD (sin filtrar por distrito)
+                appViewModel.fetchAllActiveOffers(null)
+                
+                // Después de cargar, verificar si el producto está en la lista actualizada
+                kotlinx.coroutines.delay(100) // Pequeño delay para que se actualice el estado
+                val updatedProduct = appUiState.products.firstOrNull { it.id == productId }
+                if (updatedProduct != null && product == null) {
+                    product = updatedProduct
+                }
+                isLoadingProduct = false
             }
-            // RealtimeService actualizará automáticamente las ofertas cuando haya cambios
-            // No es necesario hacer polling periódico
-            val product = appUiState.products.firstOrNull { it.id == productId }
+            
+            // Observar cambios en appUiState.products para actualizar el producto si aparece
+            LaunchedEffect(appUiState.products.size, productId) {
+                val foundProduct = appUiState.products.firstOrNull { it.id == productId }
+                if (foundProduct != null) {
+                    product = foundProduct
+                    isLoadingProduct = false
+                }
+            }
+            
+            // INTEGRACIÓN REALTIME: Iniciar suscripción en tiempo real para ProductDetailScreen
+            // Escucha cambios en TODAS las ofertas y reservas del usuario
+            val currentUserId = currentUser?.id
+            LaunchedEffect(currentUserId) {
+                if (currentUserId != null) {
+                    appViewModel.startRealtimeUpdates(
+                        com.nexusbiz.nexusbiz.ui.viewmodel.RealtimeContext(
+                            district = null, // null para escuchar todas las ofertas
+                            userId = currentUserId
+                        )
+                    )
+                }
+            }
+            
+            // Detener suscripción cuando se sale de la pantalla
+            androidx.compose.runtime.DisposableEffect(currentUserId) {
+                onDispose {
+                    appViewModel.stopRealtimeUpdates()
+                }
+            }
             // Buscar oferta activa para este producto (por product_key o nombre)
             val activeOffer = appUiState.offers.firstOrNull { 
                 (it.productKey.equals(product?.name?.lowercase()?.trim(), ignoreCase = true) ||
@@ -222,7 +291,42 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             // Buscar solo ofertas activas (grupos deprecated)
             val scope = rememberCoroutineScope()
             val context = LocalContext.current
-            ProductDetailScreen(
+            
+            // Mostrar indicador de carga mientras se busca el producto
+            if (isLoadingProduct && product == null) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = androidx.compose.ui.Modifier.size(48.dp),
+                            color = androidx.compose.ui.graphics.Color(0xFF10B981)
+                        )
+                        androidx.compose.material3.Text(
+                            text = "Cargando producto...",
+                            color = androidx.compose.ui.graphics.Color(0xFF606060),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            } else if (product == null) {
+                // Si después de cargar no se encontró, mostrar error
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Producto no encontrado",
+                        color = androidx.compose.ui.graphics.Color(0xFF606060),
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                    )
+                }
+            } else {
+                ProductDetailScreen(
                 product = product,
                 offer = activeOffer,
                 user = currentUser,
@@ -346,7 +450,8 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 },
                 onViewStores = { navController.navigate(Screen.QuickBuy.createRoute(productId)) },
                 onBack = { navController.popBackStack() }
-            )
+                )
+            }
         }
         composable(
             Screen.ReservationSuccess.route,
@@ -810,6 +915,21 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
         }
         composable(Screen.Profile.route) {
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
+            // Si el usuario es null después del logout, navegar a Login
+            // Solo navegar si realmente no hay sesión activa (no durante carga inicial)
+            LaunchedEffect(currentUser, authViewModel.currentRole) {
+                if (currentUser == null && authViewModel.currentRole == null) {
+                    // Pequeño delay para evitar navegación durante la transición
+                    kotlinx.coroutines.delay(150)
+                    try {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ConsumerNavGraph", "Error al navegar a Login: ${e.message}", e)
+                    }
+                }
+            }
             ProfileScreen(
                 user = currentUser,
                 onBack = { navController.popBackStack() },
@@ -826,12 +946,32 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     }
                 },
                 onNavigateToHome = { navController.navigate(Screen.Home.route) },
-                onNavigateToMyGroups = { navController.navigate(Screen.MyGroups.route) }
+                onNavigateToMyGroups = { navController.navigate(Screen.MyGroups.route) },
+                onNavigateToLogin = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
         composable(Screen.EditProfile.route) {
             val currentUser by authRepository.currentUser.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
+            // Si el usuario es null después del logout, navegar a Login
+            // Solo navegar si realmente no hay sesión activa (no durante carga inicial)
+            LaunchedEffect(currentUser, authViewModel.currentRole) {
+                if (currentUser == null && authViewModel.currentRole == null) {
+                    // Pequeño delay para evitar navegación durante la transición
+                    kotlinx.coroutines.delay(150)
+                    try {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ConsumerNavGraph", "Error al navegar a Login desde EditProfile: ${e.message}", e)
+                    }
+                }
+            }
             EditProfileScreen(
                 user = currentUser,
                 onSave = { name ->
@@ -844,7 +984,12 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 },
                 onBack = { navController.popBackStack() },
                 isLoading = false,
-                errorMessage = null
+                errorMessage = null,
+                onNavigateToLogin = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
         composable(Screen.ChangePassword.route) {

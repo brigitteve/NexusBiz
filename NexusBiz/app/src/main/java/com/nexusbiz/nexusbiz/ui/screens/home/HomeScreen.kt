@@ -118,6 +118,34 @@ fun HomeScreen(
     // Obtener usuario actual de forma reactiva desde la instancia compartida
     val currentUser by authRepository.currentUser.collectAsState(initial = null)
     
+    // Filtrar ofertas para mostrar solo las activas y no expiradas
+    val activeOffers = remember(offers) {
+        offers.filter { offer ->
+            offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && 
+            !offer.isExpired
+        }
+    }
+    
+    // Filtrar productos para mostrar solo los que tienen oferta activa
+    val productsWithActiveOffers = remember(products, activeOffers, groups) {
+        val now = System.currentTimeMillis()
+        products.filter { product ->
+            // Verificar si tiene oferta activa
+            val hasActiveOffer = activeOffers.any { offer ->
+                offer.productKey.equals(product.name.lowercase().trim(), ignoreCase = true) ||
+                offer.productName.equals(product.name, ignoreCase = true)
+            }
+            // Verificar si tiene grupo activo (deprecated, para compatibilidad)
+            val hasActiveGroup = groups.any { group ->
+                group.productId == product.id &&
+                group.status == com.nexusbiz.nexusbiz.data.model.GroupStatus.ACTIVE &&
+                group.expiresAt > now
+            }
+            // Mostrar solo productos con oferta activa o grupo activo
+            hasActiveOffer || hasActiveGroup
+        }
+    }
+    
     // Log para depuración
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
@@ -492,13 +520,12 @@ fun HomeScreen(
                             subtitle = "Compra en grupo y ahorra más"
                         )
                     }
-                    items(products) { product ->
+                    items(productsWithActiveOffers) { product ->
                         // Buscar oferta activa para este producto (por product_key o nombre)
-                        val activeOffer = offers.firstOrNull { 
-                            (it.productKey.equals(product.name.lowercase().trim(), ignoreCase = true) ||
-                             it.productName.equals(product.name, ignoreCase = true)) &&
-                            it.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && 
-                            !it.isExpired
+                        // Usar activeOffers que ya está filtrado para mostrar solo ofertas activas y no expiradas
+                        val activeOffer = activeOffers.firstOrNull { offer ->
+                            offer.productKey.equals(product.name.lowercase().trim(), ignoreCase = true) ||
+                            offer.productName.equals(product.name, ignoreCase = true)
                         }
                         // También buscar grupo activo (deprecated) para compatibilidad
                         val now = System.currentTimeMillis()
@@ -528,11 +555,35 @@ fun HomeScreen(
             distritoActual = currentDistrict,
             onDismiss = { showDistritoModal = false },
             onConfirmar = { nuevoDistrito ->
-                // Actualizar el distrito actual
-                currentDistrict = nuevoDistrito
-                // Notificar el cambio de distrito para refrescar productos
-                onDistrictChange?.invoke(nuevoDistrito)
-                showDistritoModal = false
+                // Guardar el distrito en la base de datos
+                currentUser?.let { user ->
+                    scope.launch {
+                        val result = authRepository.updateUserDistrict(user.id, nuevoDistrito)
+                        result.fold(
+                            onSuccess = {
+                                // Distrito guardado correctamente en la BD
+                                android.util.Log.d("HomeScreen", "Distrito guardado en BD: $nuevoDistrito")
+                                // Actualizar el distrito actual en la UI
+                                currentDistrict = nuevoDistrito
+                                // Notificar el cambio de distrito para refrescar productos
+                                onDistrictChange?.invoke(nuevoDistrito)
+                                showDistritoModal = false
+                            },
+                            onFailure = { error ->
+                                // Error al guardar, pero actualizar localmente de todos modos
+                                android.util.Log.e("HomeScreen", "Error al guardar distrito en BD: ${error.message}")
+                                currentDistrict = nuevoDistrito
+                                onDistrictChange?.invoke(nuevoDistrito)
+                                showDistritoModal = false
+                            }
+                        )
+                    }
+                } ?: run {
+                    // Si no hay usuario, solo actualizar localmente
+                    currentDistrict = nuevoDistrito
+                    onDistrictChange?.invoke(nuevoDistrito)
+                    showDistritoModal = false
+                }
             }
         )
     }

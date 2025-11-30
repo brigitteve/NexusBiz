@@ -384,21 +384,18 @@ class AuthRepository {
             
             Log.d("AuthRepository", "Registrando nuevo usuario cliente: alias=$alias, distrito=$distrito, userId=$userId")
             
-            // Insertar usuario usando mapa explícito
-            // IMPORTANTE: Asegúrate de que la columna fecha_nacimiento existe en Supabase
-            // Ejecuta el archivo migration_add_fecha_nacimiento.sql si recibes un error
-            // Nota: phone no se incluye porque no existe en el nuevo esquema de la base de datos
+            // Insertar usuario usando modelo remoto serializable
             try {
-            supabase.from("usuarios").insert(
-                mapOf(
-                    "id" to userId,
-                    "alias" to alias,
-                    "password_hash" to passwordHash,
-                    "fecha_nacimiento" to fechaNacimiento,
-                    "district" to distrito,
-                    "user_type" to "CONSUMER"
+                val remoteUser = com.nexusbiz.nexusbiz.data.remote.model.User(
+                    id = userId,
+                    alias = alias,
+                    passwordHash = passwordHash,
+                    fechaNacimiento = fechaNacimiento,
+                    district = distrito,
+                    userType = com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER,
+                    points = 0
                 )
-            )
+                supabase.from("usuarios").insert(remoteUser)
                 Log.d("AuthRepository", "Usuario insertado exitosamente en Supabase: $userId")
             } catch (e: Exception) {
                 Log.e("AuthRepository", "Error al insertar usuario en Supabase: ${e.message}", e)
@@ -432,7 +429,7 @@ class AuthRepository {
                 passwordHash = passwordHash,
                 fechaNacimiento = fechaNacimiento,
                 district = distrito,
-                points = createdUser.points,
+                points = 0, // Nuevos usuarios empiezan con 0 puntos
                 tier = com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE, // Nuevos usuarios empiezan en BRONZE
                 gamificationLevel = com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE,
                 userType = com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
@@ -583,6 +580,96 @@ class AuthRepository {
             Result.success(user)
         } catch (e: Exception) {
             Log.e("AuthRepository", "Error al actualizar perfil: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Actualiza el distrito del usuario actual en la base de datos
+     */
+    suspend fun updateUserDistrict(userId: String, district: String): Result<User> {
+        return try {
+            Log.d("AuthRepository", "Actualizando distrito para usuario $userId: $district")
+            
+            // Actualizar el distrito en la BD usando mapOf para actualizar solo ese campo
+            supabase.from("usuarios")
+                .update(mapOf("district" to district)) {
+                    filter { eq("id", userId) }
+                }
+            
+            Log.d("AuthRepository", "Distrito actualizado en la base de datos")
+            
+            // Obtener el usuario actualizado de la BD para verificar
+            val updatedRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (updatedRemoteUser == null) {
+                Log.e("AuthRepository", "No se pudo obtener el usuario actualizado después de la actualización")
+                return Result.failure(Exception("Error al obtener usuario actualizado"))
+            }
+            
+            // Verificar que el distrito se actualizó correctamente
+            if (updatedRemoteUser.district != district) {
+                Log.e("AuthRepository", "El distrito no se actualizó correctamente. Esperado: $district, Obtenido: ${updatedRemoteUser.district}")
+                return Result.failure(Exception("Error: El distrito no se actualizó correctamente"))
+            }
+            
+            Log.d("AuthRepository", "Distrito verificado en BD: ${updatedRemoteUser.district}")
+            
+            // Obtener el usuario actual en memoria
+            val currentUser = _currentUser.value
+            
+            // Convertir RemoteUser a User local
+            val tier = when (updatedRemoteUser.points) {
+                in 200..Int.MAX_VALUE -> UserTier.GOLD
+                in 100..199 -> UserTier.SILVER
+                else -> UserTier.BRONZE
+            }
+            val gamificationLevel = when (updatedRemoteUser.gamificationLevel) {
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> GamificationLevel.ORO
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> GamificationLevel.PLATA
+                else -> GamificationLevel.BRONCE
+            }
+            
+            val updatedUser = if (currentUser != null && currentUser.id == userId) {
+                // Actualizar usuario existente en memoria
+                currentUser.copy(district = district)
+            } else {
+                // Crear nuevo objeto User desde RemoteUser
+                User(
+                    id = updatedRemoteUser.id,
+                    alias = updatedRemoteUser.alias,
+                    passwordHash = updatedRemoteUser.passwordHash ?: "",
+                    fechaNacimiento = updatedRemoteUser.fechaNacimiento ?: "",
+                    district = district,
+                    email = updatedRemoteUser.email,
+                    avatar = updatedRemoteUser.avatar,
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude,
+                    points = updatedRemoteUser.points,
+                    tier = tier,
+                    gamificationLevel = gamificationLevel,
+                    badges = updatedRemoteUser.badges,
+                    streak = updatedRemoteUser.streak,
+                    completedGroups = updatedRemoteUser.completedGroups,
+                    totalSavings = updatedRemoteUser.totalSavings,
+                    userType = when (updatedRemoteUser.userType) {
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                    },
+                    createdAt = updatedRemoteUser.createdAt
+                )
+            }
+            
+            // Actualizar usuario en memoria
+            _currentUser.value = updatedUser
+            Log.d("AuthRepository", "Distrito actualizado correctamente para usuario $userId: $district (en memoria y BD)")
+            Result.success(updatedUser)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al actualizar distrito: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -846,20 +933,17 @@ class AuthRepository {
             // Crear usuario
             val userId = UUID.randomUUID().toString()
             
-            // Insertar usuario usando mapa explícito
-            // IMPORTANTE: Asegúrate de que la columna fecha_nacimiento existe en Supabase
-            // Ejecuta el archivo migration_add_fecha_nacimiento.sql si recibes un error
-            // Nota: phone no se incluye porque no existe en el nuevo esquema de la base de datos
-            supabase.from("usuarios").insert(
-                mapOf(
-                    "id" to userId,
-                    "alias" to alias,
-                    "password_hash" to passwordHash,
-                    "fecha_nacimiento" to fechaNacimiento,
-                    "district" to district,
-                    "user_type" to "STORE_OWNER"
-                )
+            // Insertar usuario usando modelo remoto serializable
+            val remoteUser = com.nexusbiz.nexusbiz.data.remote.model.User(
+                id = userId,
+                alias = alias,
+                passwordHash = passwordHash,
+                fechaNacimiento = fechaNacimiento,
+                district = district,
+                userType = com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER,
+                points = 0
             )
+            supabase.from("usuarios").insert(remoteUser)
             
             // Crear objeto User para el estado local (sin fecha_nacimiento por ahora)
             val user = User(
@@ -868,6 +952,9 @@ class AuthRepository {
                 passwordHash = passwordHash,
                 fechaNacimiento = fechaNacimiento, // Se mantiene en el objeto local para validación
                 district = district,
+                points = 0, // Nuevos usuarios empiezan con 0 puntos
+                tier = com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE,
+                gamificationLevel = com.nexusbiz.nexusbiz.data.model.GamificationLevel.BRONCE,
                 userType = com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
             )
             

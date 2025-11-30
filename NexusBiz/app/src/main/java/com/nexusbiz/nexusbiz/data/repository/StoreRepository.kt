@@ -15,11 +15,16 @@ class StoreRepository {
     private val supabase: io.github.jan.supabase.SupabaseClient
         get() = SupabaseManager.client
     
+    companion object {
+        private const val RADIUS_KM = 5.0 // Radio de 5 km para bodegas cercanas
+    }
+    
     suspend fun getStoresWithStock(
         productId: String,
         userDistrict: String?,
         userLat: Double?,
-        userLon: Double?
+        userLon: Double?,
+        useNearbyStores: Boolean = false
     ): List<Store> {
         return try {
             // Obtener oferta para saber el distrito (en el nuevo esquema, los productos son ofertas)
@@ -32,44 +37,22 @@ class StoreRepository {
             val offerDistrict = offer?.get("district") as? String
             val district = userDistrict?.takeIf { it.isNotBlank() } ?: offerDistrict
             
-            // Obtener bodegas con stock:
-            // 1. Del mismo distrito Y con stock
-            // 2. O con ubicación GPS activada (latitude y longitude no null) Y con stock
-            val storesInDistrict = if (district != null) {
-                supabase.from("bodegas")
-                    .select {
-                        filter {
-                            eq("district", district)
-                            eq("has_stock", true)
-                        }
-                    }
-                    .decodeList<RemoteStore>()
-                    .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
-            } else {
-                emptyList()
-            }
-            
-            // Obtener bodegas con GPS activado (ubicación disponible)
-            // Filtrar bodegas que tienen latitude y longitude no nulos
-            val allStoresWithStock = supabase.from("bodegas")
-                .select {
-                    filter {
-                        eq("has_stock", true)
-                    }
+            val allStores = when {
+                // Si se solicita bodegas cercanas y hay ubicación del usuario
+                useNearbyStores && userLat != null && userLon != null -> {
+                    getStoresByRadius(productId, userLat, userLon, RADIUS_KM)
                 }
-                .decodeList<Store>()
-            
-            // Filtrar en memoria las que tienen GPS activado
-            val storesWithGPS = allStoresWithStock.filter { 
-                it.latitude != null && it.longitude != null 
+                // Si hay distrito seleccionado, filtrar por distrito
+                district != null -> {
+                    getStoresByDistrict(productId, district)
+                }
+                // Caso por defecto (sin distrito ni ubicación)
+                else -> {
+                    emptyList()
+                }
             }
             
-            // Combinar y eliminar duplicados
-            // Priorizar bodegas del distrito, luego agregar las que tienen GPS
-            val allStores = (storesInDistrict + storesWithGPS.filter { 
-                district == null || it.district != district 
-            }).distinctBy { it.id }
-            
+            // Calcular distancias y ordenar
             val hasUserLocation = userLat != null && userLon != null
             allStores.map { store ->
                 val canCalculateDistance = hasUserLocation && store.latitude != null && store.longitude != null
@@ -99,13 +82,75 @@ class StoreRepository {
         }
     }
     
+    /**
+     * Obtiene bodegas con stock dentro de un radio específico desde la ubicación del usuario
+     */
+    private suspend fun getStoresByRadius(
+        productId: String,
+        userLat: Double,
+        userLon: Double,
+        radiusKm: Double
+    ): List<Store> {
+        return try {
+            // Obtener todas las bodegas con stock y GPS activado
+            val allStoresWithStock = supabase.from("bodegas")
+                .select {
+                    filter {
+                        eq("has_stock", true)
+                    }
+                }
+                .decodeList<RemoteStore>()
+                .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+            
+            // Filtrar solo las que tienen GPS activado y están dentro del radio
+            allStoresWithStock.filter { store ->
+                store.latitude != null && store.longitude != null && run {
+                    val distance = calculateDistance(
+                        userLat,
+                        userLon,
+                        store.latitude ?: 0.0,
+                        store.longitude ?: 0.0
+                    )
+                    distance <= radiusKm
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StoreRepository", "Error al obtener bodegas por radio: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Obtiene bodegas con stock del distrito especificado
+     */
+    private suspend fun getStoresByDistrict(
+        productId: String,
+        district: String
+    ): List<Store> {
+        return try {
+            supabase.from("bodegas")
+                .select {
+                    filter {
+                        eq("district", district)
+                        eq("has_stock", true)
+                    }
+                }
+                .decodeList<RemoteStore>()
+                .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+        } catch (e: Exception) {
+            Log.e("StoreRepository", "Error al obtener bodegas por distrito: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
     fun getStoresWithStockFlow(
         productId: String,
         userDistrict: String?,
         userLat: Double?,
-        userLon: Double?
+        userLon: Double?,
+        useNearbyStores: Boolean = false
     ): Flow<List<Store>> {
-        return flowOf(runBlocking { getStoresWithStock(productId, userDistrict, userLat, userLon) })
+        return flowOf(runBlocking { getStoresWithStock(productId, userDistrict, userLat, userLon, useNearbyStores) })
     }
     
     suspend fun getStoreById(storeId: String): Store? {

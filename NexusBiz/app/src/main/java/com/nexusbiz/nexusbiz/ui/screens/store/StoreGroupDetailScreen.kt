@@ -592,12 +592,15 @@ private fun ProgressSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(text = "Progreso de reservas", color = StoreMutedText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(text = "Las reservas van avanzando conforme los clientes se unen", color = StoreSubtleText, fontSize = 14.sp)
+                Text(text = "$reserved/$total", color = StoreBodyText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
-            Text(text = "$reserved/$total", color = StoreBodyText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
+        Text(text = "Las reservas van avanzando conforme los clientes se unen", color = StoreSubtleText, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         LinearProgressIndicator(
             progress = progressPercent / 100f,
             modifier = Modifier
@@ -680,23 +683,39 @@ private fun InfoSummaryCard(
 
 @Composable
 private fun InfoGrid(items: List<InfoItem>) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        items.chunked(2).forEach { rowItems ->
+    // Mostrar todos los items uno abajo del otro
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items.forEach { info ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                rowItems.forEach { info ->
-                    InfoPill(
-                        modifier = Modifier.weight(1f),
-                        icon = info.icon,
-                        label = info.label,
-                        value = info.value
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = info.icon,
+                        contentDescription = null,
+                        tint = StorePrimaryDark,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = info.label,
+                        fontSize = 13.sp,
+                        color = StoreSubtleText
                     )
                 }
-                if (rowItems.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+                Text(
+                    text = info.value,
+                    fontSize = 13.sp,
+                    color = StoreBodyText,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

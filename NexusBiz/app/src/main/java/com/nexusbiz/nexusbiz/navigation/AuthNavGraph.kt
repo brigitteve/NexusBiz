@@ -11,7 +11,7 @@ import androidx.navigation.compose.navigation
 import com.nexusbiz.nexusbiz.data.model.Store
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
 import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
-import com.nexusbiz.nexusbiz.ui.screens.auth.EnableLocationScreen
+import com.nexusbiz.nexusbiz.ui.screens.auth.SelectDistrictScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.ForgotPasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.LoginScreen
 import com.nexusbiz.nexusbiz.ui.screens.auth.RegisterScreen
@@ -75,7 +75,7 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                             }
                         }
                         else -> {
-                            navController.navigate(Screen.EnableLocation.route) {
+                            navController.navigate(Screen.SelectDistrict.route) {
                                 popUpTo(Screen.Login.route) { inclusive = true }
                             }
                         }
@@ -95,7 +95,7 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                                 }
                             }
                             else -> {
-                                navController.navigate(Screen.EnableLocation.route) {
+                                navController.navigate(Screen.SelectDistrict.route) {
                                     popUpTo(Screen.Login.route) { inclusive = true }
                                 }
                             }
@@ -135,9 +135,46 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                 }
             )
         }
-        composable(Screen.EnableLocation.route) {
-            EnableLocationScreen(
-                onNavigate = {
+        composable(Screen.SelectDistrict.route) {
+            val scope = rememberCoroutineScope()
+            val currentUser = authViewModel.currentClient
+            
+            SelectDistrictScreen(
+                initialDistrict = currentUser?.district?.takeIf { it.isNotBlank() },
+                onBack = {
+                    navController.popBackStack()
+                },
+                onConfirmDistrict = { district ->
+                    currentUser?.let { user ->
+                        scope.launch {
+                            val result = authRepository.updateUserDistrict(user.id, district)
+                            result.fold(
+                                onSuccess = {
+                                    // Distrito actualizado correctamente en la BD, navegar
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    }
+                                },
+                                onFailure = { error ->
+                                    // Error al actualizar, pero navegar de todos modos
+                                    // El error se puede mostrar al usuario si es necesario
+                                    android.util.Log.e("AuthNavGraph", "Error al guardar distrito: ${error.message}")
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+                    } ?: run {
+                        // Si no hay usuario actual, solo navegar
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Login.route) { inclusive = true }
+                        }
+                    }
+                },
+                onConfirmNearby = {
+                    // Guardar flag de bodegas cercanas en el estado guardado
+                    navController.currentBackStackEntry?.savedStateHandle?.set("useNearbyStores", true)
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
@@ -149,7 +186,7 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
             RegisterScreen(
                 onCreateAccount = { alias, password, fechaNacimiento, distrito ->
                     authViewModel.register(alias, password, fechaNacimiento, distrito) {
-                        navController.navigate(Screen.EnableLocation.route) {
+                        navController.navigate(Screen.SelectDistrict.route) {
                             popUpTo(Screen.Register.route) { inclusive = true }
                         }
                     }

@@ -33,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -40,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -66,6 +68,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Group
 import com.nexusbiz.nexusbiz.data.model.Offer
@@ -92,12 +95,13 @@ fun ProductDetailScreen(
     onBack: () -> Unit
 ) {
     // Usar el tiempo de la oferta si está disponible, sino del grupo (deprecated)
-    var currentTimeRemaining by remember { 
+    var currentTimeRemaining by remember(offer?.id) { 
         mutableStateOf(offer?.timeRemaining ?: group?.timeRemaining ?: timeRemaining) 
     }
     
     // Actualizar el tiempo periódicamente basándose en expiresAt de la oferta o grupo
-    LaunchedEffect(offer?.expiresAt, group?.expiresAt) {
+    // Incluir offer?.id para que se recalcule cuando la oferta cambie en tiempo real
+    LaunchedEffect(offer?.id, offer?.expiresAt, group?.expiresAt) {
         val expiresAt = offer?.expiresAt?.let { 
             try {
                 java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
@@ -113,7 +117,9 @@ fun ProductDetailScreen(
         }
         
         while (true) {
-            val expiresAtValue = offer?.expiresAt?.let { 
+            // Recalcular expiresAt en cada iteración para capturar cambios en tiempo real
+            val currentOffer = offer
+            val expiresAtValue = currentOffer?.expiresAt?.let { 
                 try {
                     java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
                 } catch (e: Exception) {
@@ -137,12 +143,26 @@ fun ProductDetailScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
+    // Mostrar indicador de carga mientras se busca el producto
     if (product == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("Producto no encontrado")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    color = accentColor
+                )
+                Text(
+                    text = "Cargando producto...",
+                    color = mutedTextColor,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
         }
         return
     }
@@ -186,7 +206,7 @@ fun ProductDetailScreen(
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Volver",
-                            tint = mutedTextColor
+                            tint = Color(0xFF1A1A1A)
                         )
                     }
                 },
@@ -195,10 +215,13 @@ fun ProductDetailScreen(
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Compartir",
-                            tint = mutedTextColor
+                            tint = Color(0xFF1A1A1A)
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.White
+                )
             )
         },
         bottomBar = {
@@ -228,19 +251,16 @@ fun ProductDetailScreen(
                         color = Color.White
                     )
                 }
-                OutlinedButton(
-                    onClick = {
-                        if (offer == null) {
-                            onCreateGroup(quantity) // @Deprecated
-                            showShareSheet = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(2.dp, backgroundColor),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
-                ) {
-                    Text("Compartir grupo")
+                if (offer != null) {
+                    OutlinedButton(
+                        onClick = { showShareSheet = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(2.dp, backgroundColor),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
+                    ) {
+                        Text("Compartir oferta")
+                    }
                 }
                 TextButton(onClick = onViewStores, modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -349,40 +369,50 @@ fun ProductDetailScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                text = "¿Cuántas unidades deseas reservar?",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1A1A1A)
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = when (userTier) {
-                                    com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFFCD7F32).copy(alpha = 0.15f)
-                                    com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFFC0C0C0).copy(alpha = 0.15f)
-                                    com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFFACC15).copy(alpha = 0.15f)
-                                }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = when (userTier) {
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> "Bronce (máx. $maxQuantity)"
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> "Plata (máx. $maxQuantity)"
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> "Oro (máx. $maxQuantity)"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "¿Cuántas unidades deseas reservar?",
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = when (userTier) {
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFF8B4513)
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFF696969)
-                                        com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFB8860B)
-                                    },
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    color = Color(0xFF1A1A1A)
                                 )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = when (userTier) {
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFFCD7F32).copy(alpha = 0.15f)
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFFC0C0C0).copy(alpha = 0.15f)
+                                        com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFFACC15).copy(alpha = 0.15f)
+                                    }
+                                ) {
+                                    Text(
+                                        text = when (userTier) {
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> "Bronce (máx. $maxQuantity)"
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> "Plata (máx. $maxQuantity)"
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> "Oro (máx. $maxQuantity)"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = when (userTier) {
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.BRONZE -> Color(0xFF8B4513)
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.SILVER -> Color(0xFF696969)
+                                            com.nexusbiz.nexusbiz.data.model.UserTier.GOLD -> Color(0xFFB8860B)
+                                        },
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
 

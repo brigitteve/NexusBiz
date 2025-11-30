@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -254,23 +255,29 @@ private fun TabSwitcher(
                 .fillMaxWidth()
                 .background(Color(0xFFF4F4F7), RoundedCornerShape(14.dp))
                 .padding(4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             MyGroupTab.values().forEach { tab ->
                 val selected = tab == selectedTab
-                Text(
-                    text = tab.label,
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (selected) Color.White else Color.Transparent)
                         .clickable { onTabSelected(tab) }
                         .padding(vertical = 10.dp),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    color = if (selected) accentColor else mutedTextColor
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = tab.label,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        color = if (selected) accentColor else mutedTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -356,7 +363,13 @@ private fun GroupCompletedCard(
                         if (reservedUnits > 0) {
                             QuantityBadge(quantity = reservedUnits, accentColor = accentColor)
                         }
-                        StatusPill(badge = completedBadge)
+                    }
+                    // Status badge below price
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        StatusPillSmall(badge = completedBadge)
                     }
                 }
             }
@@ -718,7 +731,7 @@ private fun GroupReservationCard(
                         }
                     }
 
-                    // Price, quantity badge, status badge
+                    // Price and quantity badge
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -733,7 +746,13 @@ private fun GroupReservationCard(
                         if (reservedUnits > 0) {
                             QuantityBadge(quantity = reservedUnits, accentColor = accentColor)
                         }
-                        StatusPill(badge = badge)
+                    }
+                    // Status badge below price
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        StatusPillSmall(badge = badge)
                     }
                 }
             }
@@ -862,6 +881,22 @@ private fun StatusPill(badge: StatusBadgeStyle) {
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
+            color = badge.content
+        )
+    }
+}
+
+@Composable
+private fun StatusPillSmall(badge: StatusBadgeStyle) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = badge.background
+    ) {
+        Text(
+            text = badge.label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
             color = badge.content
         )
     }

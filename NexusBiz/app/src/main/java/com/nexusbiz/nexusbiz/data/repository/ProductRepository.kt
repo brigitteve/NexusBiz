@@ -84,8 +84,33 @@ class ProductRepository {
             
             Log.d("ProductRepository", "Ofertas encontradas: ${remoteOffers.size}")
             
-            // Obtener el plan de la bodega para cada oferta
-            val mappedItems = remoteOffers.mapNotNull { offer ->
+            // Filtrar ofertas activas y no expiradas
+            val now = System.currentTimeMillis()
+            val activeOffers = remoteOffers.filter { remoteOffer ->
+                // Verificar que el status sea ACTIVE
+                val isActive = remoteOffer.status == com.nexusbiz.nexusbiz.data.remote.model.OfferStatus.ACTIVE
+                
+                // Verificar que no esté expirada
+                val isNotExpired = remoteOffer.expiresAt?.let { expiresAtStr ->
+                    try {
+                        val expiresAtLong = java.time.OffsetDateTime.parse(expiresAtStr).toInstant().toEpochMilli()
+                        now <= expiresAtLong
+                    } catch (e: Exception) {
+                        true // Si no se puede parsear, considerar como no expirada
+                    }
+                } ?: true // Si no tiene expiresAt, considerar como no expirada
+                
+                val isValid = isActive && isNotExpired
+                if (!isValid) {
+                    Log.d("ProductRepository", "Oferta filtrada: ${remoteOffer.productName}, status=${remoteOffer.status}, expirada=${!isNotExpired}")
+                }
+                isValid
+            }
+            
+            Log.d("ProductRepository", "Ofertas activas y no expiradas: ${activeOffers.size}")
+            
+            // Obtener el plan de la bodega para cada oferta activa
+            val mappedItems = activeOffers.mapNotNull { offer ->
                 try {
                     // Obtener el plan de la bodega
                     val storeData = supabase.from("bodegas")

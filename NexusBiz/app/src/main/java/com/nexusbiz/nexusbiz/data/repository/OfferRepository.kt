@@ -165,11 +165,18 @@ class OfferRepository {
     
     suspend fun fetchAllActiveOffers(district: String? = null): List<Offer> {
         return try {
-            Log.d("OfferRepository", "Obteniendo ofertas activas para distrito: $district")
+            val logMessage = if (district != null && district.isNotBlank()) {
+                "Obteniendo ofertas activas filtradas por distrito: $district"
+            } else {
+                "Obteniendo TODAS las ofertas activas (sin filtrar por distrito)"
+            }
+            Log.d("OfferRepository", logMessage)
+            
             val remoteOffers = supabase.from("ofertas")
                 .select {
                     filter {
                         eq("status", "ACTIVE")
+                        // Filtrar por distrito si se proporciona
                         if (district != null && district.isNotBlank()) {
                             eq("district", district)
                         }
@@ -809,10 +816,15 @@ class OfferRepository {
         try {
             Log.d("OfferRepository", "Iniciando suscripción Realtime - district: $district, storeId: $storeId, userId: $userId")
             
-            // Configurar filtros en RealtimeService
-            if (district != null && district.isNotBlank()) {
+            // Si district es null, limpiar filtros de distrito para escuchar todas las ofertas
+            if (district == null) {
+                RealtimeService.clearOfferFilters()
+                Log.d("OfferRepository", "Filtros de distrito limpiados - escuchando todas las ofertas")
+            } else if (district.isNotBlank()) {
                 RealtimeService.addOfferFilterByDistrict(district)
             }
+            
+            // Configurar filtros en RealtimeService
             if (storeId != null && storeId.isNotBlank()) {
                 RealtimeService.addOfferFilterByStoreId(storeId)
             }

@@ -21,19 +21,19 @@ object Validators {
     
     /**
      * Valida nombres (persona, producto, bodega)
-     * - Solo letras y espacios (tildes incluidas)
+     * - Letras, números y espacios (tildes incluidas)
      * - Máximo 60 caracteres
      */
     fun isValidName(value: String): Boolean {
         if (value.isBlank() || value.length > 60) return false
-        return Regex("^[A-Za-zÁÉÍÓÚáéíóúñÑ ]+$").matches(value.trim())
+        return Regex("^[A-Za-z0-9ÁÉÍÓÚáéíóúñÑ ]+$").matches(value.trim())
     }
     
     /**
-     * Sanitiza nombre (solo letras y espacios, máximo 60 caracteres)
+     * Sanitiza nombre (letras, números y espacios, máximo 60 caracteres)
      */
     fun sanitizeName(value: String): String {
-        return value.replace(Regex("[^A-Za-zÁÉÍÓÚáéíóúñÑ ]"), "").take(60)
+        return value.replace(Regex("[^A-Za-z0-9ÁÉÍÓÚáéíóúñÑ ]"), "").take(60)
     }
 
     /**
@@ -148,7 +148,7 @@ object Validators {
      */
     object ErrorMessages {
         const val INVALID_PHONE = "Número de teléfono inválido"
-        const val INVALID_NAME = "Solo se permiten letras"
+        const val INVALID_NAME = "Solo se permiten letras, números y espacios"
         const val INVALID_ALIAS = "Alias inválido (usa letras, números o caracteres especiales)"
         const val INVALID_ADDRESS = "Dirección inválida"
         const val INVALID_PRICE = "Precio inválido"

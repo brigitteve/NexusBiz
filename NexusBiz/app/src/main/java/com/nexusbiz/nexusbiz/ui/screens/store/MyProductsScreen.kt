@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -160,7 +161,7 @@ fun MyProductsScreen(
                         .height(48.dp)
                         .background(Color.White, RoundedCornerShape(16.dp))
                         .padding(4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     TabButtonWithBadge(
                         text = "Activos",
@@ -277,32 +278,42 @@ private fun TabButtonWithBadge(
             .clickable(onClick = onClick),
         color = if (isSelected) Color(0xFFF4F4F7) else Color.Transparent
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (isSelected) Color(0xFF1A1A1A) else Color(0xFF606060)
-            )
-            if (badgeCount > 0) {
-                Spacer(modifier = Modifier.width(4.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = badgeBackground
-                ) {
-                    Text(
-                        text = badgeCount.toString(),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = badgeColor
-                    )
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isSelected) Color(0xFF1A1A1A) else Color(0xFF606060),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (badgeCount > 0) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = badgeBackground
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = badgeCount.toString(),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = badgeColor
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -410,18 +421,32 @@ private fun OfferCard(
                             color = Color(0xFF10B981),
                             trackColor = Color(0xFFF4F4F7)
                         )
-                        Text(
-                        text = "${group.reservedUnits}/${group.targetSize} unidades · Quedan $timeRemaining",
-                            fontSize = 14.sp,
-                            color = Color(0xFF606060)
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "${group.reservedUnits}/${group.targetSize} unidades",
+                                fontSize = 14.sp,
+                                color = Color(0xFF606060)
+                            )
+                            Text(
+                                text = "Quedan $timeRemaining",
+                                fontSize = 11.sp,
+                                color = Color(0xFF606060).copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 } else {
-                        Text(
-                        text = "Solo ${group.reservedUnits} de ${group.targetSize} unidades · $timeRemaining",
-                        fontSize = 14.sp,
-                        color = Color(0xFF606060)
-                    )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Solo ${group.reservedUnits} de ${group.targetSize} unidades",
+                                fontSize = 14.sp,
+                                color = Color(0xFF606060)
+                            )
+                            Text(
+                                text = timeRemaining,
+                                fontSize = 11.sp,
+                                color = Color(0xFF606060).copy(alpha = 0.7f)
+                            )
+                        }
                 }
                 
                 // Info adicional para finalizados

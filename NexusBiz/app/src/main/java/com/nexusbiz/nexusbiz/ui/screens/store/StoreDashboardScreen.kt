@@ -553,10 +553,9 @@ fun OfferCardForOffer(
                             color = accent,
                             trackColor = Color(0xFFF4F4F7)
                         )
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -574,20 +573,22 @@ fun OfferCardForOffer(
                                     color = muted
                                 )
                             }
+                            // Tiempo restante abajo de la cantidad, pequeño
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 20.dp)
                             ) {
                                 Icon(
                                     Icons.Default.AccessTime,
                                     contentDescription = null,
                                     tint = warning,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = "Quedan ${hoursRemaining}h",
-                                    fontSize = 14.sp,
-                                    color = warning
+                                    fontSize = 11.sp,
+                                    color = muted.copy(alpha = 0.7f)
                                 )
                             }
                         }
