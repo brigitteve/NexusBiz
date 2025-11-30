@@ -56,7 +56,8 @@ class StoreRepository {
             val allStores = when {
                 // Si se solicita bodegas cercanas y hay ubicación del usuario (del dispositivo o BD)
                 useNearbyStores && finalUserLat != null && finalUserLon != null -> {
-                    getStoresByRadius(productId, finalUserLat, finalUserLon, RADIUS_KM)
+                    // Pasar el distrito también para filtrar ofertas por distrito
+                    getStoresByRadius(productId, finalUserLat, finalUserLon, RADIUS_KM, district)
                 }
                 // Si hay distrito seleccionado, filtrar por distrito
                 district != null -> {
@@ -119,55 +120,89 @@ class StoreRepository {
         productId: String,
         userLat: Double,
         userLon: Double,
-        radiusKm: Double
+        radiusKm: Double,
+        district: String? = null
     ): List<Store> {
         return try {
-            // Primero obtener el nombre del producto de la oferta
-            val offer = supabase.from("ofertas")
+            // Primero obtener la oferta original para saber el nombre del producto y el distrito
+            val originalOffer = supabase.from("ofertas")
                 .select {
                     filter { eq("id", productId) }
                 }
-                .decodeSingleOrNull<Map<String, Any>>()
+                .decodeSingleOrNull<RemoteOffer>()
             
-            val productName = offer?.get("product_name") as? String
-            if (productName == null) {
-                Log.e("StoreRepository", "No se pudo obtener el nombre del producto de la oferta $productId")
+            if (originalOffer == null) {
+                Log.e("StoreRepository", "No se pudo obtener la oferta $productId")
                 return emptyList()
             }
             
-            Log.d("StoreRepository", "Buscando bodegas con producto: $productName")
+            val productName = originalOffer.productName
+            val productKey = originalOffer.productKey // Usar product_key para agrupar productos similares
+            val offerDistrict = district ?: originalOffer.district
             
-            // Buscar ofertas activas con el mismo nombre de producto (case-insensitive)
-            val offersWithSameProduct = supabase.from("ofertas")
+            if (productName.isBlank() || productKey.isBlank()) {
+                Log.e("StoreRepository", "No se pudo obtener el nombre o clave del producto de la oferta $productId")
+                return emptyList()
+            }
+            
+            Log.d("StoreRepository", "Buscando bodegas con producto: '$productName' (product_key: '$productKey', distrito sugerido: '$offerDistrict')")
+            
+            // Primero buscar ofertas con el mismo product_key (productos exactamente iguales normalizados)
+            val offersWithSameKey = supabase.from("ofertas")
                 .select {
                     filter {
                         eq("status", "ACTIVE")
-                        ilike("product_name", productName.trim()) // Case-insensitive y sin espacios extra
+                        eq("product_key", productKey) // Búsqueda exacta por product_key
+                        // NO filtrar por distrito cuando se busca por radio - queremos todas las bodegas cercanas
                     }
                 }
                 .decodeList<RemoteOffer>()
             
-            Log.d("StoreRepository", "Ofertas encontradas con producto '$productName': ${offersWithSameProduct.size}")
+            Log.d("StoreRepository", "Ofertas encontradas con product_key exacto '$productKey': ${offersWithSameKey.size}")
             
-            // Si no se encontraron con búsqueda exacta, intentar con búsqueda parcial
-            val finalOffers: List<RemoteOffer> = if (offersWithSameProduct.isEmpty()) {
-                Log.d("StoreRepository", "No se encontraron ofertas con búsqueda exacta, intentando búsqueda parcial...")
-                supabase.from("ofertas")
-                    .select {
-                        filter {
-                            eq("status", "ACTIVE")
-                            ilike("product_name", "%${productName.trim()}%") // Búsqueda parcial
-                        }
+            // Si no hay suficientes resultados o queremos encontrar productos similares,
+            // buscar por product_key parcial usando palabras clave
+            val finalOffersWithKeywords = if (offersWithSameKey.size < 2) {
+                Log.d("StoreRepository", "Buscando productos similares por palabras clave en product_key...")
+                
+                // Extraer palabras clave del product_key para búsqueda más flexible
+                val keywords = productKey.split("\\s+".toRegex())
+                    .filter { it.length > 2 } // Solo palabras de más de 2 caracteres
+                    .take(3) // Tomar las 3 primeras palabras clave más importantes
+                
+                Log.d("StoreRepository", "Palabras clave extraídas del product_key: $keywords")
+                
+                // Buscar ofertas que contengan alguna de las palabras clave en el product_key
+                val offersByKeywords = keywords.flatMap { keyword ->
+                    try {
+                        supabase.from("ofertas")
+                            .select {
+                                filter {
+                                    eq("status", "ACTIVE")
+                                    ilike("product_key", "%$keyword%") // Búsqueda parcial en product_key
+                                    // NO filtrar por distrito cuando se busca por radio
+                                }
+                            }
+                            .decodeList<RemoteOffer>()
+                    } catch (e: Exception) {
+                        Log.e("StoreRepository", "Error al buscar por palabra clave '$keyword': ${e.message}")
+                        emptyList()
                     }
-                    .decodeList<RemoteOffer>()
+                }
+                .distinctBy { it.id } // Eliminar ofertas duplicadas
+                
+                Log.d("StoreRepository", "Ofertas encontradas con palabras clave en product_key: ${offersByKeywords.size}")
+                
+                // Combinar resultados: primero los exactos, luego los similares
+                (offersWithSameKey + offersByKeywords).distinctBy { it.id }
             } else {
-                offersWithSameProduct
+                offersWithSameKey
             }
             
-            Log.d("StoreRepository", "Ofertas finales encontradas: ${finalOffers.size}")
+            Log.d("StoreRepository", "Ofertas finales encontradas: ${finalOffersWithKeywords.size}")
             
             // Obtener los IDs de las bodegas que tienen este producto
-            val storeIds = finalOffers.mapNotNull { it.storeId }.distinct()
+            val storeIds = finalOffersWithKeywords.mapNotNull { it.storeId }.distinct()
             
             if (storeIds.isEmpty()) {
                 Log.d("StoreRepository", "No se encontraron bodegas con el producto '$productName'")
@@ -176,15 +211,15 @@ class StoreRepository {
             
             Log.d("StoreRepository", "Bodegas únicas con el producto: ${storeIds.size}, IDs: $storeIds")
             
-            // Obtener las bodegas con esas IDs
-            // Primero intentar con has_stock = true, si no hay resultados, buscar sin ese filtro
-            var allStoresWithStock = storeIds.flatMap { storeId ->
+            // Obtener TODAS las bodegas que publicaron esta oferta (sin filtrar por has_stock)
+            // Si una bodega publicó la oferta, significa que tiene el producto disponible
+            // Usar distinctBy para asegurar que cada bodega aparezca solo una vez
+            val allStoresWithStock = storeIds.flatMap { storeId ->
                 try {
                     supabase.from("bodegas")
                         .select {
                             filter {
                                 eq("id", storeId)
-                                eq("has_stock", true)
                             }
                         }
                         .decodeList<RemoteStore>()
@@ -194,29 +229,9 @@ class StoreRepository {
                 }
             }
             .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+            .distinctBy { it.id } // Asegurar que cada bodega aparezca solo una vez
             
-            Log.d("StoreRepository", "Bodegas con has_stock=true: ${allStoresWithStock.size}")
-            
-            // Si no hay bodegas con has_stock=true, buscar todas las bodegas (sin filtro de stock)
-            if (allStoresWithStock.isEmpty()) {
-                Log.d("StoreRepository", "No se encontraron bodegas con has_stock=true, buscando todas las bodegas...")
-                allStoresWithStock = storeIds.flatMap { storeId ->
-                    try {
-                        supabase.from("bodegas")
-                            .select {
-                                filter {
-                                    eq("id", storeId)
-                                }
-                            }
-                            .decodeList<RemoteStore>()
-                    } catch (e: Exception) {
-                        Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
-                        emptyList()
-                    }
-                }
-                .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
-                Log.d("StoreRepository", "Bodegas encontradas sin filtro de stock: ${allStoresWithStock.size}")
-            }
+            Log.d("StoreRepository", "Bodegas únicas encontradas que publicaron la oferta: ${allStoresWithStock.size}")
             
             // Filtrar solo las que tienen coordenadas (necesarias para calcular distancia)
             val storesWithCoordinates = allStoresWithStock.filter { it.latitude != null && it.longitude != null }
@@ -273,7 +288,7 @@ class StoreRepository {
         district: String
     ): List<Store> {
         return try {
-            // Primero obtener el nombre del producto de la oferta
+            // Primero obtener el nombre y clave del producto de la oferta
             val offer = supabase.from("ofertas")
                 .select {
                     filter { eq("id", productId) }
@@ -281,46 +296,70 @@ class StoreRepository {
                 .decodeSingleOrNull<RemoteOffer>()
             
             val productName = offer?.productName
-            if (productName.isNullOrBlank()) {
-                Log.e("StoreRepository", "No se pudo obtener el nombre del producto de la oferta $productId")
+            val productKey = offer?.productKey // Usar product_key para agrupar productos similares
+            
+            if (productName.isNullOrBlank() || productKey.isNullOrBlank()) {
+                Log.e("StoreRepository", "No se pudo obtener el nombre o clave del producto de la oferta $productId")
                 return emptyList()
             }
             
-            Log.d("StoreRepository", "Buscando bodegas en distrito '$district' con producto: $productName")
+            Log.d("StoreRepository", "Buscando bodegas en distrito '$district' con producto: '$productName' (product_key: '$productKey')")
             
-            // Buscar ofertas activas con el mismo nombre de producto en el distrito (case-insensitive)
-            val offersWithSameProduct = supabase.from("ofertas")
+            // Primero buscar ofertas con el mismo product_key (productos exactamente iguales normalizados)
+            val offersWithSameKey = supabase.from("ofertas")
                 .select {
                     filter {
                         eq("status", "ACTIVE")
-                        ilike("product_name", productName.trim()) // Case-insensitive
+                        eq("product_key", productKey) // Búsqueda exacta por product_key
                         eq("district", district)
                     }
                 }
                 .decodeList<RemoteOffer>()
             
-            Log.d("StoreRepository", "Ofertas encontradas con producto '$productName' en distrito '$district': ${offersWithSameProduct.size}")
+            Log.d("StoreRepository", "Ofertas encontradas con product_key exacto '$productKey' en distrito '$district': ${offersWithSameKey.size}")
             
-            // Si no se encontraron con búsqueda exacta, intentar con búsqueda parcial
-            val finalOffers: List<RemoteOffer> = if (offersWithSameProduct.isEmpty()) {
-                Log.d("StoreRepository", "No se encontraron ofertas con búsqueda exacta, intentando búsqueda parcial...")
-                supabase.from("ofertas")
-                    .select {
-                        filter {
-                            eq("status", "ACTIVE")
-                            ilike("product_name", "%${productName.trim()}%") // Búsqueda parcial
-                            eq("district", district)
-                        }
+            // Si no hay suficientes resultados, buscar por product_key parcial usando palabras clave
+            val finalOffersWithKeywords = if (offersWithSameKey.size < 2) {
+                Log.d("StoreRepository", "Buscando productos similares por palabras clave en product_key...")
+                
+                // Extraer palabras clave del product_key para búsqueda más flexible
+                val keywords = productKey.split("\\s+".toRegex())
+                    .filter { it.length > 2 } // Solo palabras de más de 2 caracteres
+                    .take(3) // Tomar las 3 primeras palabras clave más importantes
+                
+                Log.d("StoreRepository", "Palabras clave extraídas del product_key: $keywords")
+                
+                // Buscar ofertas que contengan alguna de las palabras clave en el product_key
+                val offersByKeywords = keywords.flatMap { keyword ->
+                    try {
+                        supabase.from("ofertas")
+                            .select {
+                                filter {
+                                    eq("status", "ACTIVE")
+                                    ilike("product_key", "%$keyword%") // Búsqueda parcial en product_key
+                                    eq("district", district)
+                                }
+                            }
+                            .decodeList<RemoteOffer>()
+                    } catch (e: Exception) {
+                        Log.e("StoreRepository", "Error al buscar por palabra clave '$keyword': ${e.message}")
+                        emptyList()
                     }
-                    .decodeList<RemoteOffer>()
+                }
+                .distinctBy { it.id } // Eliminar ofertas duplicadas
+                
+                Log.d("StoreRepository", "Ofertas encontradas con palabras clave en product_key: ${offersByKeywords.size}")
+                
+                // Combinar resultados: primero los exactos, luego los similares
+                (offersWithSameKey + offersByKeywords).distinctBy { it.id }
             } else {
-                offersWithSameProduct
+                offersWithSameKey
             }
             
-            Log.d("StoreRepository", "Ofertas finales encontradas en distrito: ${finalOffers.size}")
+            Log.d("StoreRepository", "Ofertas finales encontradas en distrito: ${finalOffersWithKeywords.size}")
             
             // Obtener los IDs de las bodegas que tienen este producto
-            val storeIds = finalOffers.mapNotNull { it.storeId }.distinct()
+            val storeIds = finalOffersWithKeywords.mapNotNull { it.storeId }.distinct()
             
             if (storeIds.isEmpty()) {
                 Log.d("StoreRepository", "No se encontraron bodegas con el producto '$productName' en el distrito '$district'")
@@ -329,16 +368,16 @@ class StoreRepository {
             
             Log.d("StoreRepository", "Bodegas únicas con el producto en distrito: ${storeIds.size}, IDs: $storeIds")
             
-            // Obtener las bodegas con esas IDs, del distrito
-            // Primero intentar con has_stock = true, si no hay resultados, buscar sin ese filtro
-            var stores = storeIds.flatMap { storeId ->
+            // Obtener TODAS las bodegas que publicaron esta oferta en el distrito
+            // Si una bodega publicó la oferta, significa que tiene el producto disponible
+            // Usar distinctBy para asegurar que cada bodega aparezca solo una vez
+            val stores = storeIds.flatMap { storeId ->
                 try {
                     supabase.from("bodegas")
                         .select {
                             filter {
                                 eq("id", storeId)
                                 eq("district", district)
-                                eq("has_stock", true)
                             }
                         }
                         .decodeList<RemoteStore>()
@@ -348,30 +387,7 @@ class StoreRepository {
                 }
             }
             .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
-            
-            Log.d("StoreRepository", "Bodegas con has_stock=true en distrito: ${stores.size}")
-            
-            // Si no hay bodegas con has_stock=true, buscar todas las bodegas del distrito (sin filtro de stock)
-            if (stores.isEmpty()) {
-                Log.d("StoreRepository", "No se encontraron bodegas con has_stock=true, buscando todas las bodegas del distrito...")
-                stores = storeIds.flatMap { storeId ->
-                    try {
-                        supabase.from("bodegas")
-                            .select {
-                                filter {
-                                    eq("id", storeId)
-                                    eq("district", district)
-                                }
-                            }
-                            .decodeList<RemoteStore>()
-                    } catch (e: Exception) {
-                        Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
-                        emptyList()
-                    }
-                }
-                .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
-                Log.d("StoreRepository", "Bodegas encontradas sin filtro de stock en distrito: ${stores.size}")
-            }
+            .distinctBy { it.id } // Asegurar que cada bodega aparezca solo una vez
             
             Log.d("StoreRepository", "Bodegas encontradas: ${stores.size}")
             stores

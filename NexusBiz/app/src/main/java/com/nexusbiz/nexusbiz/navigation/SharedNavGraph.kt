@@ -55,6 +55,46 @@ fun androidx.navigation.NavGraphBuilder.sharedNavGraph(
             }
             
             val productIdArg = backStackEntry.arguments?.getString(Screen.QuickBuy.PRODUCT_ID_ARG) ?: ""
+            
+            // Función para abrir Google Maps con una bodega
+            val openGoogleMaps: (com.nexusbiz.nexusbiz.data.model.Store) -> Unit = { store ->
+                try {
+                    // Intentar usar coordenadas primero para navegación directa
+                    val lat = store.latitude
+                    val lon = store.longitude
+                    if (lat != null && lon != null) {
+                        // Abrir Google Maps con navegación directa usando coordenadas
+                        val uri = android.net.Uri.parse("google.navigation:q=$lat,$lon")
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                        intent.setPackage("com.google.android.apps.maps")
+                        context.startActivity(intent)
+                    } else {
+                        // Si no hay coordenadas, usar la dirección
+                        val address = store.address.takeIf { it.isNotBlank() } ?: store.name
+                        val district = store.district.takeIf { it.isNotBlank() } ?: ""
+                        val query = android.net.Uri.encode("$address, $district")
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                        )
+                        context.startActivity(intent)
+                    }
+                } catch (e: Exception) {
+                    // Si Google Maps no está disponible, intentar con navegador web
+                    try {
+                        val address = store.address.takeIf { it.isNotBlank() } ?: store.name
+                        val district = store.district.takeIf { it.isNotBlank() } ?: ""
+                        val query = android.net.Uri.encode("$address, $district")
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                        )
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        // Si falla, no hacer nada
+                    }
+                }
+            }
             val productId = if (productIdArg.isBlank()) null else productIdArg
             
             var product by remember { mutableStateOf<com.nexusbiz.nexusbiz.data.model.Product?>(null) }
@@ -108,10 +148,17 @@ fun androidx.navigation.NavGraphBuilder.sharedNavGraph(
                         }
                     }
                     
+                    // Obtener el distrito del producto o del usuario para filtrar ofertas
+                    val productDistrict = product?.district
+                    val userDistrict = currentClient?.district?.takeIf { it.isNotBlank() } ?: productDistrict
+                    
+                    android.util.Log.d("SharedNavGraph", "Buscando bodegas - distrito: $userDistrict, producto: ${product?.name}")
+                    
                     // Buscar bodegas con stock del producto, siempre usando bodegas cercanas
+                    // Pero filtrando ofertas por distrito para mostrar solo las relevantes
                     stores = storeRepository.getStoresWithStock(
                         productId = productId,
-                        userDistrict = null, // Siempre null para bodegas cercanas
+                        userDistrict = userDistrict, // Pasar el distrito para filtrar ofertas
                         userLat = userLat,
                         userLon = userLon,
                         useNearbyStores = true, // Siempre usar bodegas cercanas (5km)
@@ -133,10 +180,7 @@ fun androidx.navigation.NavGraphBuilder.sharedNavGraph(
                     // Navegar a la misma pantalla pero con el productId seleccionado
                     navController.navigate(Screen.QuickBuy.createRoute(selectedProductId))
                 },
-                onStoreClick = { storeId ->
-                    navController.currentBackStackEntry?.savedStateHandle?.set("productName", product?.name ?: "Producto")
-                    navController.navigate(Screen.StoreDetail.createRoute(storeId))
-                },
+                onStoreClick = openGoogleMaps, // Usar la función definida arriba
                 onBack = { navController.popBackStack() },
                 isLoadingStores = isLoadingStores
             )
@@ -153,21 +197,46 @@ fun androidx.navigation.NavGraphBuilder.sharedNavGraph(
             val productName = remember {
                 backStackEntry.savedStateHandle.get<String>("productName") ?: "Producto"
             }
+            val context = LocalContext.current
             StoreDetailScreen(
                 store = store,
                 productName = productName,
                 onNavigate = {
                     store?.let { s ->
-                        val lat = s.latitude
-                        val lon = s.longitude
-                        if (lat != null && lon != null) {
-                            val uri = android.net.Uri.parse("google.navigation:q=$lat,$lon")
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-                            intent.setPackage("com.google.android.apps.maps")
+                        try {
+                            // Intentar usar coordenadas primero para navegación directa
+                            val lat = s.latitude
+                            val lon = s.longitude
+                            if (lat != null && lon != null) {
+                                // Abrir Google Maps con navegación directa usando coordenadas
+                                val uri = android.net.Uri.parse("google.navigation:q=$lat,$lon")
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                                intent.setPackage("com.google.android.apps.maps")
+                                context.startActivity(intent)
+                            } else {
+                                // Si no hay coordenadas, usar la dirección
+                                val address = s.address.takeIf { it.isNotBlank() } ?: s.name
+                                val district = s.district.takeIf { it.isNotBlank() } ?: ""
+                                val query = android.net.Uri.encode("$address, $district")
+                                val intent = android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                                )
+                                context.startActivity(intent)
+                            }
+                        } catch (e: Exception) {
+                            // Si Google Maps no está disponible, intentar con navegador web
                             try {
-                                // context.startActivity(intent)
+                                val address = s.address.takeIf { it.isNotBlank() } ?: s.name
+                                val district = s.district.takeIf { it.isNotBlank() } ?: ""
+                                val query = android.net.Uri.encode("$address, $district")
+                                val intent = android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=$query")
+                                )
+                                context.startActivity(intent)
                             } catch (_: Exception) {
-                                // Ignorar si no está disponible Maps
+                                // Si falla, no hacer nada
                             }
                         }
                     }

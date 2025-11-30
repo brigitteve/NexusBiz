@@ -75,8 +75,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.nexusbiz.nexusbiz.data.model.Category
 import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.data.model.Offer
@@ -199,21 +201,33 @@ fun HomeScreen(
                                 .padding(start = 24.dp),
                             verticalArrangement = Arrangement.Center
                         ) {
+                            val userAvatar = currentUser?.avatar
                             Surface(
                                 modifier = Modifier
                                     .size(56.dp)
                                     .clip(CircleShape),
                                 shape = CircleShape,
-                                color = Color.White
+                                color = if (userAvatar != null && userAvatar.isNotBlank()) Color.Transparent else Color.White
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Avatar",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier
-                                        .padding(12.dp)
-                                        .fillMaxSize()
-                                )
+                                if (userAvatar != null && userAvatar.isNotBlank()) {
+                                    AsyncImage(
+                                        model = userAvatar,
+                                        contentDescription = "Avatar",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Avatar",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier
+                                            .padding(12.dp)
+                                            .fillMaxSize()
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(

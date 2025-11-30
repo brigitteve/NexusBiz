@@ -936,19 +936,39 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             val offer = appUiState.offers.firstOrNull { it.id == groupId }
             var reservations by remember { mutableStateOf<List<com.nexusbiz.nexusbiz.data.model.Reservation>>(emptyList()) }
             var isLoadingReservation by remember { mutableStateOf(true) }
+            var hasCheckedReservation by remember { mutableStateOf(false) }
+            
+            // Mostrar carga mientras se obtiene la oferta
+            LaunchedEffect(groupId) {
+                if (offer == null) {
+                    isLoadingReservation = true
+                    hasCheckedReservation = false
+                }
+            }
             
             LaunchedEffect(offer?.id, currentUserState?.id) {
                 if (offer != null && currentUserState != null) {
                     isLoadingReservation = true
+                    hasCheckedReservation = false
                     try {
                         reservations = offerRepository.getReservationsByOffer(offer.id)
+                        hasCheckedReservation = true
                     } catch (e: Exception) {
                         android.util.Log.e("ConsumerNavGraph", "Error al cargar reservas: ${e.message}", e)
+                        hasCheckedReservation = true
                     } finally {
+                        // Agregar un pequeño delay para que se vea la pantalla de carga
+                        kotlinx.coroutines.delay(500)
                         isLoadingReservation = false
                     }
+                } else if (offer == null) {
+                    // Si no hay oferta, mantener la carga un poco más
+                    kotlinx.coroutines.delay(1000)
+                    isLoadingReservation = false
+                    hasCheckedReservation = true
                 } else {
                     isLoadingReservation = false
+                    hasCheckedReservation = true
                 }
             }
             

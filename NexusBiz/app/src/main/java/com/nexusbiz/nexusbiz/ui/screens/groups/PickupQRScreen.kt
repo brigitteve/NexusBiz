@@ -133,7 +133,10 @@ fun PickupQRScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                CircularProgressIndicator(color = Color(0xFF10B981))
+                CircularProgressIndicator(
+                    color = Color(0xFF10B981),
+                    modifier = Modifier.size(48.dp)
+                )
                 Text(
                     text = "Cargando información de la reserva...",
                     fontSize = 14.sp,
@@ -145,7 +148,7 @@ fun PickupQRScreen(
     }
 
     // Si no hay reserva del usuario después de cargar, mostrar error
-    if (userReservation == null) {
+    if (userReservation == null && !isLoadingReservation) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -168,21 +171,18 @@ fun PickupQRScreen(
         return
     }
 
+    // Asegurar que userReservation no sea null (después de la verificación anterior)
+    val finalUserReservation = userReservation ?: return
+
     // Obtener datos de la reserva del usuario
-    val userReservationQuantity = userReservation.units.coerceAtLeast(0)
+    val userReservationQuantity = finalUserReservation.units.coerceAtLeast(0)
     
     // Calcular precios y totales
     val groupPrice = activeOffer?.groupPrice ?: (activeGroup?.groupPrice?.takeIf { it > 0 } ?: activeGroup?.normalPrice ?: 0.0)
     val totalReservationPrice = groupPrice * userReservationQuantity
     
     // Obtener estado de la reserva
-    val reservationStatus = when {
-        userReservation != null -> if (userReservation.isValidated) "Completado" else "Pendiente en retiro"
-        else -> {
-            val userParticipant = activeGroup?.activeParticipants?.firstOrNull { it.userId == currentUser?.id }
-            if (userParticipant?.isValidated == true) "Completado" else "Pendiente en retiro"
-        }
-    }
+    val reservationStatus = if (finalUserReservation.isValidated) "Completado" else "Pendiente en retiro"
     
     // Dirección de la bodega
     val storeName = activeOffer?.storeName ?: activeGroup?.storeName ?: "Bodega"
@@ -198,7 +198,7 @@ fun PickupQRScreen(
     // Generar código QR basado en la reserva
     // IMPORTANTE: El QR debe contener SIEMPRE el ID de la reserva,
     // que es lo que escaneará el bodeguero para validarla.
-    val reservationCode = userReservation.id
+    val reservationCode = finalUserReservation.id
 
     val handleNavigate = {
         val query = Uri.encode(storeAddress)

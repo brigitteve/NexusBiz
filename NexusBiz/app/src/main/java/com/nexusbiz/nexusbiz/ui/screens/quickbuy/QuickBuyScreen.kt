@@ -77,7 +77,7 @@ fun QuickBuyScreen(
     stores: List<Store> = emptyList(),
     products: List<Product> = emptyList(), // Lista de productos para búsqueda
     onProductSelected: (String) -> Unit, // Cuando se selecciona un producto de la búsqueda
-    onStoreClick: (String) -> Unit,
+    onStoreClick: (Store) -> Unit, // Recibir el objeto Store completo para abrir Google Maps
     onBack: () -> Unit,
     isLoadingStores: Boolean = false
 ) {
@@ -322,7 +322,7 @@ private fun StoresListView(
     productName: String,
     productImageUrl: String,
     stores: List<Store>,
-    onStoreClick: (String) -> Unit,
+    onStoreClick: (Store) -> Unit, // Cambiar para recibir el objeto Store completo
     onBack: () -> Unit,
     isLoading: Boolean
 ) {
@@ -401,7 +401,7 @@ private fun StoresListView(
                     store = store,
                     isVerified = verifiedStoreIds.contains(store.id),
                     distanceLabel = if (store.distance > 0) "${distanceFormat.format(store.distance)} km" else "Cerca de ti",
-                    onClick = { onStoreClick(store.id) }
+                    onClick = { onStoreClick(store) } // Pasar el objeto Store completo
                 )
             }
             if (stores.isEmpty()) {
@@ -488,7 +488,7 @@ private fun BodegaCard(
     store: Store,
     isVerified: Boolean,
     distanceLabel: String,
-    onClick: (String) -> Unit
+    onClick: (Store) -> Unit // Cambiar para recibir el objeto Store completo
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -572,7 +572,7 @@ private fun BodegaCard(
             }
 
             Button(
-                onClick = { onClick(store.id) },
+                onClick = { onClick(store) }, // Pasar el objeto Store completo
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(46.dp),

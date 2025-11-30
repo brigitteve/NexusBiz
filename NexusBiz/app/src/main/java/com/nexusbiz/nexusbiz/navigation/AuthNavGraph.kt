@@ -75,7 +75,8 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                             }
                         }
                         else -> {
-                            navController.navigate(Screen.SelectDistrict.route) {
+                            // Ir directamente al inicio de clientes, la selección de distrito se hace desde el modal
+                            navController.navigate(Screen.Home.route) {
                                 popUpTo(Screen.Login.route) { inclusive = true }
                             }
                         }
@@ -95,7 +96,8 @@ fun androidx.navigation.NavGraphBuilder.authNavGraph(
                                 }
                             }
                             else -> {
-                                navController.navigate(Screen.SelectDistrict.route) {
+                                // Ir directamente al inicio de clientes, la selección de distrito se hace desde el modal
+                                navController.navigate(Screen.Home.route) {
                                     popUpTo(Screen.Login.route) { inclusive = true }
                                 }
                             }
