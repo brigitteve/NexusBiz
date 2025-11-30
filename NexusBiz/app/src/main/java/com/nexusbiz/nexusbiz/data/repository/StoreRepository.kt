@@ -5,6 +5,7 @@ import com.nexusbiz.nexusbiz.data.model.Store
 import com.nexusbiz.nexusbiz.data.model.StorePlan
 import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
 import com.nexusbiz.nexusbiz.data.remote.model.Store as RemoteStore
+import com.nexusbiz.nexusbiz.data.remote.model.Offer as RemoteOffer
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -33,9 +34,9 @@ class StoreRepository {
                 .select {
                     filter { eq("id", productId) }
                 }
-                .decodeSingleOrNull<Map<String, Any>>()
+                .decodeSingleOrNull<RemoteOffer>()
             
-            val offerDistrict = offer?.get("district") as? String
+            val offerDistrict = offer?.district
             val district = userDistrict?.takeIf { it.isNotBlank() } ?: offerDistrict
             
             // Si se solicita bodegas cercanas pero no tenemos coordenadas del dispositivo,
@@ -121,20 +122,119 @@ class StoreRepository {
         radiusKm: Double
     ): List<Store> {
         return try {
-            // Obtener todas las bodegas con stock (luego filtraremos las que tienen coordenadas)
-            val allStoresWithStock = supabase.from("bodegas")
+            // Primero obtener el nombre del producto de la oferta
+            val offer = supabase.from("ofertas")
+                .select {
+                    filter { eq("id", productId) }
+                }
+                .decodeSingleOrNull<Map<String, Any>>()
+            
+            val productName = offer?.get("product_name") as? String
+            if (productName == null) {
+                Log.e("StoreRepository", "No se pudo obtener el nombre del producto de la oferta $productId")
+                return emptyList()
+            }
+            
+            Log.d("StoreRepository", "Buscando bodegas con producto: $productName")
+            
+            // Buscar ofertas activas con el mismo nombre de producto (case-insensitive)
+            val offersWithSameProduct = supabase.from("ofertas")
                 .select {
                     filter {
-                        eq("has_stock", true)
+                        eq("status", "ACTIVE")
+                        ilike("product_name", productName.trim()) // Case-insensitive y sin espacios extra
                     }
                 }
-                .decodeList<RemoteStore>()
+                .decodeList<RemoteOffer>()
+            
+            Log.d("StoreRepository", "Ofertas encontradas con producto '$productName': ${offersWithSameProduct.size}")
+            
+            // Si no se encontraron con búsqueda exacta, intentar con búsqueda parcial
+            val finalOffers: List<RemoteOffer> = if (offersWithSameProduct.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron ofertas con búsqueda exacta, intentando búsqueda parcial...")
+                supabase.from("ofertas")
+                    .select {
+                        filter {
+                            eq("status", "ACTIVE")
+                            ilike("product_name", "%${productName.trim()}%") // Búsqueda parcial
+                        }
+                    }
+                    .decodeList<RemoteOffer>()
+            } else {
+                offersWithSameProduct
+            }
+            
+            Log.d("StoreRepository", "Ofertas finales encontradas: ${finalOffers.size}")
+            
+            // Obtener los IDs de las bodegas que tienen este producto
+            val storeIds = finalOffers.mapNotNull { it.storeId }.distinct()
+            
+            if (storeIds.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron bodegas con el producto '$productName'")
+                return emptyList()
+            }
+            
+            Log.d("StoreRepository", "Bodegas únicas con el producto: ${storeIds.size}, IDs: $storeIds")
+            
+            // Obtener las bodegas con esas IDs
+            // Primero intentar con has_stock = true, si no hay resultados, buscar sin ese filtro
+            var allStoresWithStock = storeIds.flatMap { storeId ->
+                try {
+                    supabase.from("bodegas")
+                        .select {
+                            filter {
+                                eq("id", storeId)
+                                eq("has_stock", true)
+                            }
+                        }
+                        .decodeList<RemoteStore>()
+                } catch (e: Exception) {
+                    Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
+                    emptyList()
+                }
+            }
+            .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+            
+            Log.d("StoreRepository", "Bodegas con has_stock=true: ${allStoresWithStock.size}")
+            
+            // Si no hay bodegas con has_stock=true, buscar todas las bodegas (sin filtro de stock)
+            if (allStoresWithStock.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron bodegas con has_stock=true, buscando todas las bodegas...")
+                allStoresWithStock = storeIds.flatMap { storeId ->
+                    try {
+                        supabase.from("bodegas")
+                            .select {
+                                filter {
+                                    eq("id", storeId)
+                                }
+                            }
+                            .decodeList<RemoteStore>()
+                    } catch (e: Exception) {
+                        Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
+                        emptyList()
+                    }
+                }
                 .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
-                .filter { it.latitude != null && it.longitude != null } // Filtrar las que tienen coordenadas
+                Log.d("StoreRepository", "Bodegas encontradas sin filtro de stock: ${allStoresWithStock.size}")
+            }
+            
+            // Filtrar solo las que tienen coordenadas (necesarias para calcular distancia)
+            val storesWithCoordinates = allStoresWithStock.filter { it.latitude != null && it.longitude != null }
+            
+            Log.d("StoreRepository", "Bodegas con coordenadas: ${storesWithCoordinates.size}")
+            Log.d("StoreRepository", "Bodegas sin coordenadas: ${allStoresWithStock.size - storesWithCoordinates.size}")
+            
+            // Si no hay bodegas con coordenadas, retornar todas las bodegas (sin distancia)
+            if (storesWithCoordinates.isEmpty() && allStoresWithStock.isNotEmpty()) {
+                Log.d("StoreRepository", "No hay bodegas con coordenadas, retornando todas las bodegas sin distancia")
+                return allStoresWithStock.map { it.copy(distance = 0.0) }
+            }
+            
+            val allStoresWithStockFinal = storesWithCoordinates
             
             // Calcular distancia y filtrar bodegas dentro del radio
             // También ordenamos por distancia para mostrar las más cercanas primero
-            allStoresWithStock
+            val storesInRadius = allStoresWithStockFinal
                 .mapNotNull { store ->
                     if (store.latitude != null && store.longitude != null) {
                         val distance = calculateDistance(
@@ -156,6 +256,9 @@ class StoreRepository {
                 }
                 .sortedBy { (_, distance) -> distance } // Ordenar por distancia (más cercana primero)
                 .map { (store, _) -> store }
+            
+            Log.d("StoreRepository", "Bodegas dentro del radio de ${radiusKm}km: ${storesInRadius.size}")
+            storesInRadius
         } catch (e: Exception) {
             Log.e("StoreRepository", "Error al obtener bodegas por radio: ${e.message}", e)
             emptyList()
@@ -163,22 +266,115 @@ class StoreRepository {
     }
     
     /**
-     * Obtiene bodegas con stock del distrito especificado
+     * Obtiene bodegas con stock del distrito especificado que tengan el mismo producto
      */
     private suspend fun getStoresByDistrict(
         productId: String,
         district: String
     ): List<Store> {
         return try {
-            supabase.from("bodegas")
+            // Primero obtener el nombre del producto de la oferta
+            val offer = supabase.from("ofertas")
+                .select {
+                    filter { eq("id", productId) }
+                }
+                .decodeSingleOrNull<RemoteOffer>()
+            
+            val productName = offer?.productName
+            if (productName.isNullOrBlank()) {
+                Log.e("StoreRepository", "No se pudo obtener el nombre del producto de la oferta $productId")
+                return emptyList()
+            }
+            
+            Log.d("StoreRepository", "Buscando bodegas en distrito '$district' con producto: $productName")
+            
+            // Buscar ofertas activas con el mismo nombre de producto en el distrito (case-insensitive)
+            val offersWithSameProduct = supabase.from("ofertas")
                 .select {
                     filter {
+                        eq("status", "ACTIVE")
+                        ilike("product_name", productName.trim()) // Case-insensitive
                         eq("district", district)
-                        eq("has_stock", true)
                     }
                 }
-                .decodeList<RemoteStore>()
+                .decodeList<RemoteOffer>()
+            
+            Log.d("StoreRepository", "Ofertas encontradas con producto '$productName' en distrito '$district': ${offersWithSameProduct.size}")
+            
+            // Si no se encontraron con búsqueda exacta, intentar con búsqueda parcial
+            val finalOffers: List<RemoteOffer> = if (offersWithSameProduct.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron ofertas con búsqueda exacta, intentando búsqueda parcial...")
+                supabase.from("ofertas")
+                    .select {
+                        filter {
+                            eq("status", "ACTIVE")
+                            ilike("product_name", "%${productName.trim()}%") // Búsqueda parcial
+                            eq("district", district)
+                        }
+                    }
+                    .decodeList<RemoteOffer>()
+            } else {
+                offersWithSameProduct
+            }
+            
+            Log.d("StoreRepository", "Ofertas finales encontradas en distrito: ${finalOffers.size}")
+            
+            // Obtener los IDs de las bodegas que tienen este producto
+            val storeIds = finalOffers.mapNotNull { it.storeId }.distinct()
+            
+            if (storeIds.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron bodegas con el producto '$productName' en el distrito '$district'")
+                return emptyList()
+            }
+            
+            Log.d("StoreRepository", "Bodegas únicas con el producto en distrito: ${storeIds.size}, IDs: $storeIds")
+            
+            // Obtener las bodegas con esas IDs, del distrito
+            // Primero intentar con has_stock = true, si no hay resultados, buscar sin ese filtro
+            var stores = storeIds.flatMap { storeId ->
+                try {
+                    supabase.from("bodegas")
+                        .select {
+                            filter {
+                                eq("id", storeId)
+                                eq("district", district)
+                                eq("has_stock", true)
+                            }
+                        }
+                        .decodeList<RemoteStore>()
+                } catch (e: Exception) {
+                    Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
+                    emptyList()
+                }
+            }
+            .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+            
+            Log.d("StoreRepository", "Bodegas con has_stock=true en distrito: ${stores.size}")
+            
+            // Si no hay bodegas con has_stock=true, buscar todas las bodegas del distrito (sin filtro de stock)
+            if (stores.isEmpty()) {
+                Log.d("StoreRepository", "No se encontraron bodegas con has_stock=true, buscando todas las bodegas del distrito...")
+                stores = storeIds.flatMap { storeId ->
+                    try {
+                        supabase.from("bodegas")
+                            .select {
+                                filter {
+                                    eq("id", storeId)
+                                    eq("district", district)
+                                }
+                            }
+                            .decodeList<RemoteStore>()
+                    } catch (e: Exception) {
+                        Log.e("StoreRepository", "Error al obtener bodega $storeId: ${e.message}")
+                        emptyList()
+                    }
+                }
                 .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+                Log.d("StoreRepository", "Bodegas encontradas sin filtro de stock en distrito: ${stores.size}")
+            }
+            
+            Log.d("StoreRepository", "Bodegas encontradas: ${stores.size}")
+            stores
         } catch (e: Exception) {
             Log.e("StoreRepository", "Error al obtener bodegas por distrito: ${e.message}", e)
             emptyList()

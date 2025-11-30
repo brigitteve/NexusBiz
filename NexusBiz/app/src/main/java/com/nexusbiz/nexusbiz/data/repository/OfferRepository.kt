@@ -17,6 +17,7 @@ import com.nexusbiz.nexusbiz.data.remote.model.ReservationStatusRemote
 import com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel as RemoteGamificationLevel
 import com.nexusbiz.nexusbiz.service.RealtimeService
 import com.nexusbiz.nexusbiz.service.RealtimeEventType
+import com.nexusbiz.nexusbiz.util.NotificationHelper
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -241,6 +242,49 @@ class OfferRepository {
         }
     }
     
+    /**
+     * Obtiene el conteo de ofertas activas (no expiradas) para una bodega específica.
+     * Usado para validar límites de ofertas según el plan (FREE: máximo 2 ofertas activas).
+     * 
+     * IMPORTANTE: Solo cuenta ofertas con status ACTIVE que no han expirado.
+     * Las ofertas expiradas no se cuentan, permitiendo crear nuevas ofertas.
+     */
+    suspend fun getActiveOffersCountByStore(storeId: String): Int {
+        return try {
+            val now = System.currentTimeMillis()
+            Log.d("OfferRepository", "Contando ofertas activas para storeId: $storeId")
+            
+            val remoteOffers = supabase.from("ofertas")
+                .select {
+                    filter {
+                        eq("store_id", storeId)
+                        eq("status", "ACTIVE")
+                    }
+                }
+                .decodeList<RemoteOffer>()
+            
+            val activeCount = remoteOffers.count { remoteOffer ->
+                // Verificar que no esté expirada
+                val isNotExpired = remoteOffer.expiresAt?.let { expiresAtStr ->
+                    try {
+                        val expiresAtLong = java.time.OffsetDateTime.parse(expiresAtStr).toInstant().toEpochMilli()
+                        now <= expiresAtLong
+                    } catch (e: Exception) {
+                        true // Si no se puede parsear, considerar como no expirada
+                    }
+                } ?: true // Si no tiene expiresAt, considerar como no expirada
+                
+                isNotExpired
+            }
+            
+            Log.d("OfferRepository", "Ofertas activas (no expiradas) para storeId $storeId: $activeCount")
+            activeCount
+        } catch (e: Exception) {
+            Log.e("OfferRepository", "Error al contar ofertas activas para storeId $storeId: ${e.message}", e)
+            0 // En caso de error, retornar 0 para permitir crear la oferta
+        }
+    }
+    
     suspend fun createOffer(
         productName: String,
         description: String,
@@ -328,6 +372,27 @@ class OfferRepository {
             val offer = getOfferById(offerId)
             if (offer != null) {
                 fetchAllActiveOffers(district)
+                
+                // NOTIFICACIÓN 1: Notificar a clientes sobre nueva oferta
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        val notificationRepo = NotificationRepository()
+                        val clientTokens = notificationRepo.getClientTokensByDistrict(district)
+                        
+                        // Llamar a función de backend para enviar notificaciones
+                        // NOTA: Esto debe implementarse en Supabase Edge Functions o Firebase Cloud Functions
+                        NotificationHelper.sendNotificationToClients(
+                            tokens = clientTokens,
+                            title = "¡Nueva oferta disponible!",
+                            body = "${productName} - Ahorra ${normalPrice - groupPrice} soles",
+                            type = "NEW_OFFER",
+                            offerId = offerId
+                        )
+                    } catch (e: Exception) {
+                        Log.e("OfferRepository", "Error al enviar notificación de nueva oferta: ${e.message}")
+                    }
+                }
+                
                 Result.success(offer)
             } else {
                 Result.failure(Exception("Error al crear la oferta"))
@@ -482,6 +547,26 @@ class OfferRepository {
                     currentOffers.add(it)
                     _offers.value = currentOffers
                     Log.d("OfferRepository", "Oferta agregada después de reserva: ${it.id}, reserved_units: ${it.reservedUnits}/${it.targetUnits}")
+                }
+            }
+            
+            // NOTIFICACIÓN 2: Notificar al bodeguero que un cliente se unió
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val notificationRepo = NotificationRepository()
+                    val storeOwnerToken = notificationRepo.getStoreOwnerToken(offer.storeId)
+                    
+                    storeOwnerToken?.let { token ->
+                        NotificationHelper.sendNotificationToUser(
+                            token = token,
+                            title = "¡Nuevo participante!",
+                            body = "Un cliente se unió a tu oferta de ${offer.productName}",
+                            type = "CLIENT_JOINED",
+                            offerId = offerId
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e("OfferRepository", "Error al enviar notificación de cliente unido: ${e.message}")
                 }
             }
             

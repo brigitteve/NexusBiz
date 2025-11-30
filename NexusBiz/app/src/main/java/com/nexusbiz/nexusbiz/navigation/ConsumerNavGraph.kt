@@ -1,36 +1,32 @@
 package com.nexusbiz.nexusbiz.navigation
 
-import androidx.compose.runtime.Composable
+import android.content.Intent
+import android.os.Build
+import android.util.Log
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
-import android.content.Intent
-import android.content.SharedPreferences
-import android.util.Log
-import android.widget.Toast
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.navArgument
-import com.nexusbiz.nexusbiz.data.model.GroupStatus
 import com.nexusbiz.nexusbiz.data.repository.AuthRepository
 import com.nexusbiz.nexusbiz.data.repository.OfferRepository
 import com.nexusbiz.nexusbiz.data.repository.ProductRepository
-import com.nexusbiz.nexusbiz.util.onSuccess
-import com.nexusbiz.nexusbiz.util.onFailure
+import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupCompletedConsumerScreen
-import com.nexusbiz.nexusbiz.ui.screens.groups.GroupDetailScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupExpiredConsumerScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupReadyForPickupScreen
 import com.nexusbiz.nexusbiz.ui.screens.groups.GroupReservedScreen
@@ -39,7 +35,6 @@ import com.nexusbiz.nexusbiz.ui.screens.groups.PickupQRScreen
 import com.nexusbiz.nexusbiz.ui.screens.home.HomeScreen
 import com.nexusbiz.nexusbiz.ui.screens.product.ProductDetailScreen
 import com.nexusbiz.nexusbiz.ui.screens.product.ReservationSuccessScreen
-import com.nexusbiz.nexusbiz.ui.screens.auth.ChangePasswordScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.EditProfileScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.ProfileScreen
 import com.nexusbiz.nexusbiz.ui.screens.profile.SettingsScreen
@@ -49,6 +44,8 @@ import com.nexusbiz.nexusbiz.ui.screens.store.ModeSwitchingScreen
 import com.nexusbiz.nexusbiz.ui.viewmodel.AppViewModel
 import com.nexusbiz.nexusbiz.ui.viewmodel.AuthViewModel
 import com.nexusbiz.nexusbiz.util.Screen
+import com.nexusbiz.nexusbiz.util.onFailure
+import com.nexusbiz.nexusbiz.util.onSuccess
 import kotlinx.coroutines.launch
 
 fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
@@ -470,7 +467,10 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     }
                     context.startActivity(Intent.createChooser(shareIntent, "Compartir grupo"))
                 },
-                onViewStores = { navController.navigate(Screen.QuickBuy.createRoute(productId)) },
+                onViewStores = { 
+                    // Navegar a QuickBuy con el productId del producto actual para mostrar bodegas directamente
+                    navController.navigate(Screen.QuickBuy.createRoute(productId))
+                },
                 onBack = { navController.popBackStack() }
                 )
             }
@@ -637,18 +637,35 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED
             }
             
-            // Expirados: Reserva EXPIRED o oferta EXPIRED
+            // Expirados: Mostrar ofertas expiradas donde el cliente tiene una reserva
+            // Incluye:
+            // 1. Ofertas con status EXPIRED
+            // 2. Ofertas que han expirado por tiempo (isExpired = true) y no están completadas
+            // 3. Reservas con status EXPIRED
+            // IMPORTANTE: Solo mostrar si el cliente tiene una reserva en esa oferta
             val expiredOffers = myOffers.filter { offer ->
                 val reservation = userReservations.firstOrNull { it.offerId == offer.id }
-                reservation?.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.EXPIRED ||
-                offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED ||
-                (offer.isExpired && reservation?.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED && offer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED)
+                // Solo mostrar si el cliente tiene una reserva en esta oferta
+                if (reservation == null) {
+                    false
+                } else {
+                    // Mostrar si:
+                    // - La reserva está EXPIRED, O
+                    // - La oferta tiene status EXPIRED, O
+                    // - La oferta expiró por tiempo y no está completada/validada
+                    reservation.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.EXPIRED ||
+                    offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.EXPIRED ||
+                    (offer.isExpired && 
+                     offer.status != com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED &&
+                     reservation.status != com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED)
+                }
             }
             
             Log.d("ConsumerNavGraph", "Ofertas filtradas por estado de reserva - Activos: ${activeOffers.size}, En Retiro: ${pickupOffers.size}, Completados: ${completedOffers.size}, Expirados: ${expiredOffers.size}")
             
             // CORRECCIÓN: Convertir ofertas a grupos para compatibilidad con MyGroupsScreen
             // MyGroupsScreen solo acepta List<Group>, así que convertimos las ofertas
+            @RequiresApi(Build.VERSION_CODES.O)
             fun offerToGroup(offer: com.nexusbiz.nexusbiz.data.model.Offer): com.nexusbiz.nexusbiz.data.model.Group {
                 val expiresAtLong = offer.expiresAt?.let {
                     try {
@@ -1007,10 +1024,10 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             }
             EditProfileScreen(
                 user = currentUser,
-                onSave = { name ->
+                onSave = { name, avatarUrl ->
                     currentUser?.let { user ->
                         scope.launch {
-                            authRepository.updateProfile(user.copy(alias = name))
+                            authRepository.updateProfile(user.copy(alias = name, avatar = avatarUrl))
                         }
                         navController.popBackStack()
                     }

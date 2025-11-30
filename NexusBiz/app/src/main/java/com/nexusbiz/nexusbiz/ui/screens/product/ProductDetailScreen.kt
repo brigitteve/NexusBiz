@@ -191,7 +191,9 @@ fun ProductDetailScreen(
     val previewProgress = if (targetUnits > 0) ((currentUnits + quantity).toFloat() / targetUnits).coerceIn(0f, 1f) else 0f
     val unitsNeeded = offer?.unitsNeeded ?: (targetUnits - currentUnits).coerceAtLeast(0)
     val totalPrice = product.groupPrice * quantity
-    val shareLink = "https://nexusbiz.app/oferta/${product.id}"
+    val shareLink = remember(offer?.id) { 
+        "https://nexusbiz.app/oferta/${offer?.id ?: product.id}" 
+    }
     val shareSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
 

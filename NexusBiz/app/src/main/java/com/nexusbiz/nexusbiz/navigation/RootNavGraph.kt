@@ -84,7 +84,8 @@ fun RootNavGraph(
             navController = navController,
             authViewModel = authViewModel,
             productRepository = productRepository,
-            storeRepository = storeRepository
+            storeRepository = storeRepository,
+            authRepository = authRepository
         )
     }
 }

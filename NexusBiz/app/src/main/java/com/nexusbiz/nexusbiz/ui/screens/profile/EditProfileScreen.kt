@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,11 +51,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexusbiz.nexusbiz.data.model.User
 import com.nexusbiz.nexusbiz.util.Validators
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import com.nexusbiz.nexusbiz.util.ImageUriHelper
+import java.io.File
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
 fun EditProfileScreen(
     user: User?,
-    onSave: (String) -> Unit,
+    onSave: (String, String?) -> Unit, // Cambiar para incluir avatar URL
     onBack: () -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null,
@@ -87,22 +102,86 @@ fun EditProfileScreen(
 
     var name by rememberSaveable { mutableStateOf(user.alias) }
     var localError by rememberSaveable { mutableStateOf<String?>(null) }
-
+    var avatarUri by remember { mutableStateOf<Uri?>(null) }
+    var showImagePickerDialog by remember { mutableStateOf(false) }
+    var isUploadingAvatar by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
     val accent = Color(0xFF10B981)
     val background = Color(0xFFF4F4F7)
     val muted = Color(0xFF606060)
+    
+    // Inicializar avatarUri con la URL del usuario si existe
+    LaunchedEffect(user?.avatar) {
+        user?.avatar?.takeIf { it.isNotBlank() }?.let { url ->
+            avatarUri = Uri.parse(url)
+        }
+    }
+    
+    // Variable para almacenar el archivo temporal de la cámara
+    var cameraPhotoFile by remember { mutableStateOf<File?>(null) }
+
+    // Launcher para galería
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            avatarUri = it
+        }
+    }
+
+    // Launcher para cámara
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && cameraPhotoFile != null) {
+            val photoUri = ImageUriHelper.getUriForFile(context, cameraPhotoFile!!)
+            photoUri?.let { avatarUri = it }
+        }
+    }
 
     fun validateAndSave() {
         localError = null
         
-        // Validar alias
         val sanitizedAlias = Validators.sanitizeAlias(name)
         if (!Validators.isValidAlias(sanitizedAlias)) {
             localError = Validators.ErrorMessages.INVALID_ALIAS
             return
         }
         
-        onSave(sanitizedAlias)
+        // Si hay una nueva imagen local, subirla primero
+        val currentAvatarUri = avatarUri
+        if (currentAvatarUri != null && 
+            (currentAvatarUri.scheme == "content" || currentAvatarUri.scheme == "file")) {
+            // Es una imagen local nueva, necesitamos subirla
+            isUploadingAvatar = true
+            scope.launch {
+                try {
+                    val avatarUrl = com.nexusbiz.nexusbiz.data.remote.SupabaseStorage.uploadPublicImage(
+                        context = context,
+                        imageUri = currentAvatarUri,
+                        pathBuilder = { extension ->
+                            "avatars/${user?.id ?: "unknown"}.$extension"
+                        },
+                        bucketPriority = listOf("avatars", "public", "product-images")
+                    )
+                    
+                    isUploadingAvatar = false
+                    if (avatarUrl != null) {
+                        onSave(sanitizedAlias, avatarUrl)
+                    } else {
+                        localError = "Error al subir la imagen. Intenta nuevamente."
+                    }
+                } catch (e: Exception) {
+                    isUploadingAvatar = false
+                    localError = "Error al subir la imagen: ${e.message}"
+                }
+            }
+        } else {
+            // Es una URL remota o null, guardar directamente
+            onSave(sanitizedAlias, currentAvatarUri?.toString())
+        }
     }
 
     Scaffold(
@@ -139,7 +218,12 @@ fun EditProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            Avatar(accent = accent)
+            Avatar(
+                accent = accent,
+                avatarUri = avatarUri,
+                onClick = { showImagePickerDialog = true },
+                isLoading = isUploadingAvatar
+            )
             Spacer(modifier = Modifier.height(16.dp))
 
             Column(
@@ -179,7 +263,7 @@ fun EditProfileScreen(
 
                 Button(
                     onClick = { validateAndSave() },
-                    enabled = !isLoading,
+                    enabled = !isLoading && !isUploadingAvatar,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -194,7 +278,11 @@ fun EditProfileScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isLoading) "Guardando..." else "Guardar cambios",
+                        text = when {
+                            isUploadingAvatar -> "Subiendo imagen..."
+                            isLoading -> "Guardando..."
+                            else -> "Guardar cambios"
+                        },
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -204,12 +292,84 @@ fun EditProfileScreen(
             }
         }
     }
+
+    // Dialog para seleccionar fuente de imagen
+    if (showImagePickerDialog) {
+        AlertDialog(
+            onDismissRequest = { showImagePickerDialog = false },
+            title = { Text("Seleccionar foto de perfil") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Elige de dónde quieres tomar la foto")
+                }
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showImagePickerDialog = false
+                            galleryLauncher.launch("image/*")
+                        }
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Image, contentDescription = null)
+                            Text("Galería")
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showImagePickerDialog = false
+                            try {
+                                val photoFile = ImageUriHelper.createTempImageFile(context, "avatar_photo")
+                                if (photoFile != null) {
+                                    val photoUri = ImageUriHelper.getUriForFile(context, photoFile)
+                                    if (photoUri != null) {
+                                        cameraPhotoFile = photoFile
+                                        cameraLauncher.launch(photoUri)
+                                    } else {
+                                        galleryLauncher.launch("image/*")
+                                    }
+                                } else {
+                                    galleryLauncher.launch("image/*")
+                                }
+                            } catch (e: Exception) {
+                                galleryLauncher.launch("image/*")
+                            }
+                        }
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null)
+                            Text("Cámara")
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImagePickerDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun Avatar(accent: Color) {
+private fun Avatar(
+    accent: Color,
+    avatarUri: Uri?,
+    onClick: () -> Unit,
+    isLoading: Boolean = false
+) {
     Box(
-        modifier = Modifier.size(120.dp),
+        modifier = Modifier
+            .size(120.dp)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -217,18 +377,44 @@ private fun Avatar(accent: Color) {
                 .size(110.dp)
                 .clip(CircleShape)
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(accent, Color(0xFF059669))
-                    )
+                    if (avatarUri != null) {
+                        Brush.linearGradient(
+                            colors = listOf(Color.Transparent, Color.Transparent)
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            colors = listOf(accent, Color(0xFF059669))
+                        )
+                    }
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(56.dp)
-            )
+            when {
+                isLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = Color.White
+                    )
+                }
+                avatarUri != null -> {
+                    AsyncImage(
+                        model = avatarUri,
+                        contentDescription = "Avatar del usuario",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                else -> {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
+            }
         }
         Box(
             modifier = Modifier
@@ -240,7 +426,7 @@ private fun Avatar(accent: Color) {
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = null,
+                contentDescription = "Cambiar foto",
                 tint = Color.White,
                 modifier = Modifier.size(18.dp)
             )

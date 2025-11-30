@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.play.services.maps)
     implementation(libs.play.services.location)
     
+    // WorkManager (para tareas en segundo plano)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

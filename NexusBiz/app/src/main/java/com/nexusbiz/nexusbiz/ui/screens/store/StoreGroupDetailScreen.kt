@@ -121,6 +121,7 @@ fun StoreGroupDetailScreen(
             reservations.map { reservation ->
                 val alias = reservation.userAlias?.takeIf { it.isNotBlank() } ?: "Participante"
                 val initials = alias.take(2).uppercase()
+                val avatar = reservation.userAvatar?.takeIf { it.isNotBlank() }
                 val reservationDate = reservation.reservedAt?.let {
                     try {
                         val timestamp = java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli()
@@ -137,6 +138,7 @@ fun StoreGroupDetailScreen(
                 StoreParticipantDisplay(
                     name = alias,
                     initials = initials,
+                    avatar = avatar,
                     units = reservation.units,
                     reservationDate = reservationDate,
                     state = state,
@@ -892,6 +894,7 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
                 Box(
                     modifier = Modifier
                         .size(48.dp)
+                        .clip(CircleShape)
                         .background(
                             color = when (participant.state) {
                                 ParticipantState.RETIRED -> StoreAccentBlue
@@ -902,15 +905,26 @@ private fun ParticipantRow(participant: StoreParticipantDisplay, showDivider: Bo
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = participant.initials,
-                        color = when (participant.state) {
-                            ParticipantState.RETIRED -> Color(0xFF1E3A8A)
-                            ParticipantState.VALIDATED -> Color(0xFF065F46)
-                            ParticipantState.PENDING -> Color(0xFF7C2D12)
-                        },
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (participant.avatar != null && participant.avatar.isNotBlank()) {
+                        AsyncImage(
+                            model = participant.avatar,
+                            contentDescription = participant.name,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = participant.initials,
+                            color = when (participant.state) {
+                                ParticipantState.RETIRED -> Color(0xFF1E3A8A)
+                                ParticipantState.VALIDATED -> Color(0xFF065F46)
+                                ParticipantState.PENDING -> Color(0xFF7C2D12)
+                            },
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
                 Column {
                     Text(text = participant.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = StoreTitleText)
@@ -1159,6 +1173,7 @@ private fun participantStateConfig(state: ParticipantState): ParticipantStateCon
 data class StoreParticipantDisplay(
     val name: String,
     val initials: String,
+    val avatar: String? = null,
     val units: Int,
     val reservationDate: String,
     val state: ParticipantState,
@@ -1208,6 +1223,7 @@ fun mapParticipantsForStore(
             name = participant.alias.ifBlank { "Participante ${index + 1}" },
             initials = participant.alias.takeIf { it.isNotBlank() }?.split(" ")?.mapNotNull { it.firstOrNull()?.toString() }?.take(2)?.joinToString("")
                 ?: "PN",
+            avatar = participant.avatar.takeIf { it.isNotBlank() },
             units = participant.reservedUnits.coerceAtLeast(1),
             reservationDate = formatter.format(Date(participant.joinedAt)),
             state = state,

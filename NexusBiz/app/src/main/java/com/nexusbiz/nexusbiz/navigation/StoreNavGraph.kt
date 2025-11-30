@@ -287,15 +287,12 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                             // Validar límite de ofertas activas según el plan
                             val storePlan = ownerStore.plan ?: com.nexusbiz.nexusbiz.data.model.StorePlan.FREE
                             if (storePlan == com.nexusbiz.nexusbiz.data.model.StorePlan.FREE) {
-                                // Consultar ofertas activas desde el estado de la UI
-                                val activeOffersForStore = appUiState.offers.filter { offer ->
-                                    offer.storeId == storeId && 
-                                    offer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.ACTIVE && 
-                                    !offer.isExpired 
-                                }
+                                // Consultar ofertas activas directamente desde la base de datos
+                                // Esto asegura que solo se cuenten ofertas realmente activas (no expiradas)
+                                val activeOffersCount = offerRepository.getActiveOffersCountByStore(storeId)
                                 
-                                android.util.Log.d("StoreNavGraph", "Ofertas activas encontradas: ${activeOffersForStore.size} para storeId: $storeId")
-                                if (activeOffersForStore.size >= 2) {
+                                android.util.Log.d("StoreNavGraph", "Ofertas activas (no expiradas) encontradas: $activeOffersCount para storeId: $storeId")
+                                if (activeOffersCount >= 2) {
                                     isLoading = false
                                     errorMessage = "Plan Gratuito: Solo puedes tener 2 ofertas activas. Actualiza a Plan PRO para ofertas ilimitadas."
                                     return@launch
@@ -599,13 +596,14 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                 reservations = reservations,
                 onBack = { navController.popBackStack() },
                 onShare = { targetOffer ->
+                    val shareLink = "https://nexusbiz.app/oferta/${targetOffer.id}"
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(
                             Intent.EXTRA_TEXT,
                             "Únete a la oferta \"${targetOffer.productName}\" y consigue el precio grupal de S/ ${
                                 (if (targetOffer.groupPrice > 0) targetOffer.groupPrice else targetOffer.normalPrice)
-                            }."
+                            }. $shareLink"
                         )
                     }
                     context.startActivity(Intent.createChooser(shareIntent, "Compartir oferta"))

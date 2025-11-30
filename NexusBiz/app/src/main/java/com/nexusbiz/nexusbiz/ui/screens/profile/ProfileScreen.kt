@@ -474,7 +474,7 @@ private fun PointsRulesSection() {
         "Unirse al grupo" to "+5",
         "Grupo completado" to "+20",
         "QR validado" to "+15",
-        "Compartir grupo" to "+2",
+        "Compartir grupo" to "+5",
         "Abrir app diario" to "+1"
     )
 

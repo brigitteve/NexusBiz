@@ -5,8 +5,14 @@ import com.nexusbiz.nexusbiz.data.model.Group
 import com.nexusbiz.nexusbiz.data.model.GroupStatus
 import com.nexusbiz.nexusbiz.data.model.Participant
 import com.nexusbiz.nexusbiz.data.remote.SupabaseManager
+import com.nexusbiz.nexusbiz.data.repository.NotificationRepository
+import com.nexusbiz.nexusbiz.util.NotificationHelper
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
@@ -590,7 +596,31 @@ class GroupRepository {
             
             // Validar el participante (actualiza is_validated y status)
             // Retornar userId para otorgar puntos
-            validateParticipant(participantId)
+            val result = validateParticipant(participantId)
+            
+            // NOTIFICACIÓN 5: Notificar al cliente que su QR fue validado
+            if (result.isSuccess) {
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    try {
+                        val notificationRepo = NotificationRepository()
+                        val clientToken = notificationRepo.getFCMToken(userId)
+                        
+                        clientToken?.let { token ->
+                            NotificationHelper.sendNotificationToUser(
+                                token = token,
+                                title = "¡Reserva confirmada!",
+                                body = "Tu reserva está lista para retirar",
+                                type = "QR_VALIDATED",
+                                groupId = group.id
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e("GroupRepository", "Error al enviar notificación de QR validado: ${e.message}")
+                    }
+                }
+            }
+            
+            result
         } catch (e: IllegalStateException) {
             Log.e("GroupRepository", "Supabase no inicializado", e)
             Result.failure(Exception("Error de conexión. Intenta nuevamente."))

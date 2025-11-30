@@ -655,7 +655,7 @@ class AuthRepository {
                     badges = updatedRemoteUser.badges,
                     streak = updatedRemoteUser.streak,
                     completedGroups = updatedRemoteUser.completedGroups,
-                    totalSavings = updatedRemoteUser.totalSavings,
+                    totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
                     userType = when (updatedRemoteUser.userType) {
                         com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
                         com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
@@ -670,6 +670,89 @@ class AuthRepository {
             Result.success(updatedUser)
         } catch (e: Exception) {
             Log.e("AuthRepository", "Error al actualizar distrito: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Actualiza la ubicación (latitud y longitud) del usuario en la base de datos
+     */
+    suspend fun updateUserLocation(userId: String, latitude: Double, longitude: Double): Result<User> {
+        return try {
+            Log.d("AuthRepository", "Actualizando ubicación para usuario $userId: lat=$latitude, lon=$longitude")
+            
+            // Actualizar la ubicación en la BD
+            supabase.from("usuarios")
+                .update(mapOf(
+                    "latitude" to latitude,
+                    "longitude" to longitude
+                )) {
+                    filter { eq("id", userId) }
+                }
+            
+            Log.d("AuthRepository", "Ubicación actualizada en la base de datos")
+            
+            // Obtener el usuario actualizado de la BD
+            val updatedRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (updatedRemoteUser == null) {
+                Log.e("AuthRepository", "No se pudo obtener el usuario actualizado después de la actualización")
+                return Result.failure(Exception("Error al obtener usuario actualizado"))
+            }
+            
+            // Convertir RemoteUser a User local
+            val tier = when (updatedRemoteUser.points) {
+                in 200..Int.MAX_VALUE -> UserTier.GOLD
+                in 100..199 -> UserTier.SILVER
+                else -> UserTier.BRONZE
+            }
+            val gamificationLevel = when (updatedRemoteUser.gamificationLevel) {
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> GamificationLevel.ORO
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> GamificationLevel.PLATA
+                else -> GamificationLevel.BRONCE
+            }
+            
+            val currentUser = _currentUser.value
+            val updatedUser = if (currentUser != null && currentUser.id == userId) {
+                currentUser.copy(
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude
+                )
+            } else {
+                User(
+                    id = updatedRemoteUser.id,
+                    alias = updatedRemoteUser.alias,
+                    passwordHash = updatedRemoteUser.passwordHash ?: "",
+                    fechaNacimiento = updatedRemoteUser.fechaNacimiento ?: "",
+                    district = updatedRemoteUser.district,
+                    email = updatedRemoteUser.email,
+                    avatar = updatedRemoteUser.avatar,
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude,
+                    points = updatedRemoteUser.points,
+                    tier = tier,
+                    gamificationLevel = gamificationLevel,
+                    badges = updatedRemoteUser.badges,
+                    streak = updatedRemoteUser.streak,
+                    completedGroups = updatedRemoteUser.completedGroups,
+                    totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
+                    userType = when (updatedRemoteUser.userType) {
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                    },
+                    createdAt = updatedRemoteUser.createdAt
+                )
+            }
+            
+            _currentUser.value = updatedUser
+            Log.d("AuthRepository", "Ubicación actualizada correctamente: lat=${updatedUser.latitude}, lon=${updatedUser.longitude}")
+            Result.success(updatedUser)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al actualizar ubicación: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -897,7 +980,7 @@ class AuthRepository {
                     tier = tier,
                     gamificationLevel = gamificationLevel,
                     badges = updatedRemoteUser.badges,
-                    streak = updatedRemoteUser.streak,
+                    streak = updatedRemoteUser.streak ?: 0,
                     completedGroups = updatedRemoteUser.completedGroups ?: 0,
                     totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
                     userType = when (updatedRemoteUser.userType) {

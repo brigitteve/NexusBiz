@@ -101,13 +101,7 @@ fun ReservationSuccessScreen(
                 border = BorderStroke(1.dp, Color(0xFFFDE68A)),
                 shape = RoundedCornerShape(50)
             ) {
-                Text(
-                    text = "¡Ganaste +${quantity * 5} puntos Nexus!",
-                    color = pointsColor,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                )
+
             }
 
             Surface(

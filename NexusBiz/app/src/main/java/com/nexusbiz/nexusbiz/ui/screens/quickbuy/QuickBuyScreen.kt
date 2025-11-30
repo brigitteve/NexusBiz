@@ -1,9 +1,11 @@
 package com.nexusbiz.nexusbiz.ui.screens.quickbuy
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Store
@@ -31,18 +34,25 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,17 +63,268 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.nexusbiz.nexusbiz.data.model.Product
 import com.nexusbiz.nexusbiz.data.model.Store
 import androidx.compose.ui.text.style.TextAlign
 import java.text.DecimalFormat
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickBuyScreen(
+    productId: String? = null, // Opcional: si viene con productId, mostrar bodegas directamente
+    productName: String? = null,
+    productImageUrl: String? = null,
+    stores: List<Store> = emptyList(),
+    products: List<Product> = emptyList(), // Lista de productos para búsqueda
+    onProductSelected: (String) -> Unit, // Cuando se selecciona un producto de la búsqueda
+    onStoreClick: (String) -> Unit,
+    onBack: () -> Unit,
+    isLoadingStores: Boolean = false
+) {
+    // Si no hay productId, mostrar búsqueda de productos
+    if (productId.isNullOrBlank()) {
+        ProductSearchView(
+            products = products,
+            onProductSelected = onProductSelected,
+            onBack = onBack
+        )
+    } else {
+        // Si hay productId, mostrar bodegas (vista actual)
+        StoresListView(
+            productName = productName ?: "Producto",
+            productImageUrl = productImageUrl ?: "",
+            stores = stores,
+            onStoreClick = onStoreClick,
+            onBack = onBack,
+            isLoading = isLoadingStores
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProductSearchView(
+    products: List<Product>,
+    onProductSelected: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    
+    val filteredProducts = remember(searchQuery, products) {
+        if (searchQuery.isBlank()) {
+            emptyList()
+        } else {
+            products.filter { product ->
+                product.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { 
+                    Text(
+                        "Búsqueda urgente",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = Color(0xFF1A1A1A)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.White
+                )
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFF4F4F7))
+                .padding(paddingValues)
+        ) {
+            // Campo de búsqueda
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text("Buscar producto por nombre...", color = Color(0xFF9CA3AF))
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar",
+                        tint = Color(0xFF6B7280),
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .height(50.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    focusedIndicatorColor = Color(0xFF10B981),
+                    unfocusedIndicatorColor = Color(0xFFE5E7EB)
+                ),
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true
+            )
+            
+            if (searchQuery.isBlank()) {
+                // Estado inicial
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = Color(0xFFCBD5E1),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Text(
+                            text = "Busca el producto que necesitas",
+                            fontSize = 16.sp,
+                            color = Color(0xFF606060)
+                        )
+                        Text(
+                            text = "Encuentra bodegas cercanas a 5km con stock disponible",
+                            fontSize = 14.sp,
+                            color = Color(0xFF9CA3AF),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                    }
+                }
+            } else if (filteredProducts.isEmpty()) {
+                // Sin resultados
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Store,
+                            contentDescription = null,
+                            tint = Color(0xFFCBD5E1),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Text(
+                            text = "No se encontraron productos",
+                            fontSize = 16.sp,
+                            color = Color(0xFF606060)
+                        )
+                        Text(
+                            text = "Intenta con otro nombre",
+                            fontSize = 14.sp,
+                            color = Color(0xFF9CA3AF)
+                        )
+                    }
+                }
+            } else {
+                // Lista de productos
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredProducts) { product ->
+                        ProductSearchItem(
+                            product = product,
+                            onClick = { onProductSelected(product.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductSearchItem(
+    product: Product,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = product.imageUrl?.takeIf { it.isNotBlank() } ?: "https://via.placeholder.com/80",
+                contentDescription = product.name,
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop
+            )
+            
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = product.name,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1A1A1A)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Ver bodegas cercanas (5km)",
+                        fontSize = 13.sp,
+                        color = Color(0xFF10B981)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoresListView(
     productName: String,
     productImageUrl: String,
     stores: List<Store>,
     onStoreClick: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isLoading: Boolean
 ) {
     val verifiedStoreIds = remember(stores) {
         stores.filter { (it.rating ?: 0.0) >= 4.0 || it.totalSales >= 50 }.map { it.id }.toSet()
@@ -103,7 +364,7 @@ fun QuickBuyScreen(
                         color = Color(0xFF1A1A1A)
                     )
                     Text(
-                        text = "Stock disponible ahora",
+                        text = "Bodegas cercanas (5km)",
                         fontSize = 13.sp,
                         color = Color(0xFF606060)
                     )
@@ -112,7 +373,15 @@ fun QuickBuyScreen(
             }
         }
 
-        LazyColumn(
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF10B981))
+            }
+        } else {
+            LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -154,6 +423,7 @@ fun QuickBuyScreen(
                     )
                 }
             }
+        }
         }
     }
 }
@@ -204,7 +474,7 @@ private fun ProductSummary(productName: String, imageUrl: String) {
                     color = Color(0xFF1A1A1A)
                 )
                 Text(
-                    text = "Buscando en tu distrito",
+                    text = "Bodegas a 5km de distancia",
                     fontSize = 13.sp,
                     color = Color(0xFF606060)
                 )
@@ -360,6 +630,12 @@ private fun EmptyState() {
                 text = "No hay bodegas con stock disponible",
                 fontSize = 15.sp,
                 color = Color(0xFF606060),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Intenta buscar otro producto",
+                fontSize = 13.sp,
+                color = Color(0xFF9CA3AF),
                 textAlign = TextAlign.Center
             )
         }
