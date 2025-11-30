@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +62,7 @@ fun PickupQRScreen(
     offer: Offer? = null,
     reservation: Reservation? = null,
     currentUser: User?,
+    isLoadingReservation: Boolean = false,
     onBack: () -> Unit,
     onShare: () -> Unit
 ) {
@@ -121,7 +123,28 @@ fun PickupQRScreen(
         return
     }
 
-    // Si no hay reserva del usuario, no podemos generar un QR válido
+    // Mostrar indicador de carga mientras se obtiene la reserva
+    if (isLoadingReservation) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                CircularProgressIndicator(color = Color(0xFF10B981))
+                Text(
+                    text = "Cargando información de la reserva...",
+                    fontSize = 14.sp,
+                    color = Color(0xFF606060)
+                )
+            }
+        }
+        return
+    }
+
+    // Si no hay reserva del usuario después de cargar, mostrar error
     if (userReservation == null) {
         Box(
             modifier = Modifier.fillMaxSize(),

@@ -119,7 +119,7 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             LaunchedEffect(Unit) {
                 categories = productRepository.getCategories()
             }
-            // Otorgar puntos diarios si corresponde
+            // Otorgar puntos diarios y actualizar racha si corresponde
             val context = LocalContext.current
             LaunchedEffect(Unit) {
                 currentUser?.let { user ->
@@ -130,6 +130,28 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                     if (lastDailyPointsDate != today) {
                         authRepository.addPoints(user.id, 5, "Abrir app diario")
                         prefs.edit().putString("last_daily_points_${user.id}", today).apply()
+                    }
+                    
+                    // Actualizar racha del usuario
+                    val lastAccessDateStr = prefs.getString("last_access_date_${user.id}", null)
+                    val lastAccessDate = lastAccessDateStr?.let {
+                        try {
+                            java.time.LocalDate.parse(it)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    val todayLocalDate = java.time.LocalDate.now()
+                    val todayStr = java.time.format.DateTimeFormatter.ISO_DATE.format(todayLocalDate)
+                    
+                    // Solo actualizar si no accedió hoy
+                    if (lastAccessDateStr != todayStr) {
+                        authRepository.updateStreakWithDateCheck(user.id, lastAccessDate)
+                            .onFailure { e ->
+                                android.util.Log.e("ConsumerNavGraph", "Error al actualizar racha: ${e.message}", e)
+                            }
+                        // Guardar la fecha de acceso actual
+                        prefs.edit().putString("last_access_date_${user.id}", todayStr).apply()
                     }
                 }
             }
@@ -896,10 +918,20 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
             }
             val offer = appUiState.offers.firstOrNull { it.id == groupId }
             var reservations by remember { mutableStateOf<List<com.nexusbiz.nexusbiz.data.model.Reservation>>(emptyList()) }
+            var isLoadingReservation by remember { mutableStateOf(true) }
             
             LaunchedEffect(offer?.id, currentUserState?.id) {
-                offer?.let { 
-                    reservations = offerRepository.getReservationsByOffer(it.id)
+                if (offer != null && currentUserState != null) {
+                    isLoadingReservation = true
+                    try {
+                        reservations = offerRepository.getReservationsByOffer(offer.id)
+                    } catch (e: Exception) {
+                        android.util.Log.e("ConsumerNavGraph", "Error al cargar reservas: ${e.message}", e)
+                    } finally {
+                        isLoadingReservation = false
+                    }
+                } else {
+                    isLoadingReservation = false
                 }
             }
             
@@ -909,6 +941,7 @@ fun androidx.navigation.NavGraphBuilder.consumerNavGraph(
                 offer = offer,
                 reservation = userReservation,
                 currentUser = currentUserState,
+                isLoadingReservation = isLoadingReservation,
                 onBack = { navController.popBackStack() },
                 onShare = { }
             )

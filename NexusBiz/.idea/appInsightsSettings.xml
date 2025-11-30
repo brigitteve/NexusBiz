@@ -23,9 +23,9 @@
               <option name="connection">
                 <ConnectionSetting>
                   <option name="appId" value="com.nexusbiz.nexusbiz" />
-                  <option name="mobileSdkAppId" value="1:665990610926:android:88e38ccbb6e3c00b7c58ff" />
-                  <option name="projectId" value="nexusbiz-c22c4" />
-                  <option name="projectNumber" value="665990610926" />
+                  <option name="mobileSdkAppId" value="1:39357196188:android:71877936fcdb7d73934a59" />
+                  <option name="projectId" value="nexusbiz-bbc2c" />
+                  <option name="projectNumber" value="39357196188" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

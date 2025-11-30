@@ -84,7 +84,8 @@ fun androidx.navigation.NavGraphBuilder.sharedNavGraph(
                     userDistrict = if (useNearbyStores) null else currentClient?.district,
                     userLat = userLat,
                     userLon = userLon,
-                    useNearbyStores = useNearbyStores
+                    useNearbyStores = useNearbyStores,
+                    userId = currentClient?.id
                 )
             }
             QuickBuyScreen(

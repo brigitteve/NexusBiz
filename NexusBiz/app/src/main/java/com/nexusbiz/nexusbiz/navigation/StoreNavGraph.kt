@@ -650,6 +650,51 @@ fun androidx.navigation.NavGraphBuilder.storeNavGraph(
                             val result = offerRepository.validateReservationByStore(qrCode, storeId)
                             result.onSuccess { userId ->
                                 Toast.makeText(context, "QR escaneado correctamente. Reserva validada exitosamente", Toast.LENGTH_SHORT).show()
+                                
+                                // Actualizar gamificación: ahorro y grupos completados
+                                groupId?.let { offerId ->
+                                    val offer = offerRepository.getOfferById(offerId)
+                                    val reservation = offerRepository.getReservationsByOffer(offerId)
+                                        .firstOrNull { it.id == qrCode }
+                                    
+                                    if (offer != null && reservation != null) {
+                                        // Calcular ahorro: (precio_normal - precio_grupal) * unidades
+                                        val savingsPerUnit = offer.normalPrice - offer.groupPrice
+                                        val totalSavings = savingsPerUnit * reservation.units
+                                        
+                                        // Actualizar ahorro total del usuario
+                                        if (totalSavings > 0) {
+                                            authRepository.updateTotalSavings(userId, totalSavings)
+                                                .onFailure { e ->
+                                                    android.util.Log.e("StoreNavGraph", "Error al actualizar ahorro: ${e.message}", e)
+                                                }
+                                        }
+                                        
+                                        // Verificar si la oferta se completó después de validar esta reserva
+                                        // Esperar un momento para que el trigger actualice validated_units
+                                        kotlinx.coroutines.delay(600)
+                                        val updatedOffer = offerRepository.getOfferById(offerId)
+                                        
+                                        // Si la oferta se completó (validated_units >= target_units), incrementar completed_groups
+                                        // para todos los usuarios que participaron
+                                        if (updatedOffer != null && 
+                                            updatedOffer.status == com.nexusbiz.nexusbiz.data.model.OfferStatus.COMPLETED &&
+                                            updatedOffer.validatedUnits >= updatedOffer.targetUnits) {
+                                            // Obtener todas las reservas validadas de esta oferta
+                                            val validatedReservations = offerRepository.getReservationsByOffer(offerId)
+                                                .filter { it.status == com.nexusbiz.nexusbiz.data.model.ReservationStatus.VALIDATED }
+                                            
+                                            // Incrementar completed_groups para cada usuario que participó
+                                            validatedReservations.forEach { validatedReservation ->
+                                                authRepository.incrementCompletedGroups(validatedReservation.userId)
+                                                    .onFailure { e ->
+                                                        android.util.Log.e("StoreNavGraph", "Error al incrementar grupos completados: ${e.message}", e)
+                                                    }
+                                            }
+                                        }
+                                    }
+                                }
+                                
                                 // Refrescar la oferta para ver los cambios
                                 groupId?.let { 
                                     appViewModel.fetchOfferById(it)

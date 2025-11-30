@@ -730,6 +730,309 @@ class AuthRepository {
      * Esta función actualiza el password_hash en la BD con el hash de la contraseña proporcionada.
      * Útil cuando necesitas sincronizar el hash en la BD con una contraseña conocida.
      */
+    /**
+     * Actualiza el ahorro total del usuario sumando el monto ahorrado en una compra.
+     * El ahorro se calcula como: (precio_normal - precio_grupal) * unidades
+     */
+    suspend fun updateTotalSavings(userId: String, savingsToAdd: Double): Result<User> {
+        return try {
+            if (savingsToAdd <= 0) {
+                Log.w("AuthRepository", "No se actualiza ahorro: monto negativo o cero: $savingsToAdd")
+                return Result.failure(Exception("El monto a ahorrar debe ser positivo"))
+            }
+            
+            Log.d("AuthRepository", "Actualizando ahorro para usuario $userId: +$savingsToAdd")
+            
+            // Obtener el usuario actual para conocer su ahorro actual
+            val currentRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (currentRemoteUser == null) {
+                Log.e("AuthRepository", "Usuario no encontrado: $userId")
+                return Result.failure(Exception("Usuario no encontrado"))
+            }
+            
+            val newTotalSavings = (currentRemoteUser.totalSavings ?: 0.0) + savingsToAdd
+            
+            // Actualizar el ahorro total en la BD
+            supabase.from("usuarios")
+                .update(mapOf("total_savings" to newTotalSavings)) {
+                    filter { eq("id", userId) }
+                }
+            
+            Log.d("AuthRepository", "Ahorro total actualizado: ${currentRemoteUser.totalSavings} -> $newTotalSavings")
+            
+            // Obtener el usuario actualizado
+            val updatedRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (updatedRemoteUser == null) {
+                return Result.failure(Exception("Error al obtener usuario actualizado"))
+            }
+            
+            // Convertir RemoteUser a User local
+            val tier = when (updatedRemoteUser.points) {
+                in 200..Int.MAX_VALUE -> UserTier.GOLD
+                in 100..199 -> UserTier.SILVER
+                else -> UserTier.BRONZE
+            }
+            val gamificationLevel = when (updatedRemoteUser.gamificationLevel) {
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> GamificationLevel.ORO
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> GamificationLevel.PLATA
+                else -> GamificationLevel.BRONCE
+            }
+            
+            val currentUser = _currentUser.value
+            val updatedUser = if (currentUser != null && currentUser.id == userId) {
+                currentUser.copy(totalSavings = updatedRemoteUser.totalSavings ?: 0.0)
+            } else {
+                User(
+                    id = updatedRemoteUser.id,
+                    alias = updatedRemoteUser.alias,
+                    passwordHash = updatedRemoteUser.passwordHash ?: "",
+                    fechaNacimiento = updatedRemoteUser.fechaNacimiento ?: "",
+                    district = updatedRemoteUser.district,
+                    email = updatedRemoteUser.email,
+                    avatar = updatedRemoteUser.avatar,
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude,
+                    points = updatedRemoteUser.points,
+                    tier = tier,
+                    gamificationLevel = gamificationLevel,
+                    badges = updatedRemoteUser.badges,
+                    streak = updatedRemoteUser.streak,
+                    completedGroups = updatedRemoteUser.completedGroups,
+                    totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
+                    userType = when (updatedRemoteUser.userType) {
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                    },
+                    createdAt = updatedRemoteUser.createdAt
+                )
+            }
+            
+            // Actualizar el usuario en memoria
+            _currentUser.value = updatedUser
+            Result.success(updatedUser)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al actualizar ahorro total: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Incrementa el contador de grupos completados del usuario.
+     * Se llama cuando un usuario participa en una oferta que se completa exitosamente.
+     */
+    suspend fun incrementCompletedGroups(userId: String): Result<User> {
+        return try {
+            Log.d("AuthRepository", "Incrementando grupos completados para usuario: $userId")
+            
+            // Obtener el usuario actual
+            val currentRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (currentRemoteUser == null) {
+                Log.e("AuthRepository", "Usuario no encontrado: $userId")
+                return Result.failure(Exception("Usuario no encontrado"))
+            }
+            
+            val newCompletedGroups = (currentRemoteUser.completedGroups ?: 0) + 1
+            
+            // Actualizar el contador en la BD
+            supabase.from("usuarios")
+                .update(mapOf("completed_groups" to newCompletedGroups)) {
+                    filter { eq("id", userId) }
+                }
+            
+            Log.d("AuthRepository", "Grupos completados actualizados: ${currentRemoteUser.completedGroups} -> $newCompletedGroups")
+            
+            // Obtener el usuario actualizado
+            val updatedRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (updatedRemoteUser == null) {
+                return Result.failure(Exception("Error al obtener usuario actualizado"))
+            }
+            
+            // Convertir RemoteUser a User local
+            val tier = when (updatedRemoteUser.points) {
+                in 200..Int.MAX_VALUE -> UserTier.GOLD
+                in 100..199 -> UserTier.SILVER
+                else -> UserTier.BRONZE
+            }
+            val gamificationLevel = when (updatedRemoteUser.gamificationLevel) {
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> GamificationLevel.ORO
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> GamificationLevel.PLATA
+                else -> GamificationLevel.BRONCE
+            }
+            
+            val currentUser = _currentUser.value
+            val updatedUser = if (currentUser != null && currentUser.id == userId) {
+                currentUser.copy(completedGroups = updatedRemoteUser.completedGroups ?: 0)
+            } else {
+                User(
+                    id = updatedRemoteUser.id,
+                    alias = updatedRemoteUser.alias,
+                    passwordHash = updatedRemoteUser.passwordHash ?: "",
+                    fechaNacimiento = updatedRemoteUser.fechaNacimiento ?: "",
+                    district = updatedRemoteUser.district,
+                    email = updatedRemoteUser.email,
+                    avatar = updatedRemoteUser.avatar,
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude,
+                    points = updatedRemoteUser.points,
+                    tier = tier,
+                    gamificationLevel = gamificationLevel,
+                    badges = updatedRemoteUser.badges,
+                    streak = updatedRemoteUser.streak,
+                    completedGroups = updatedRemoteUser.completedGroups ?: 0,
+                    totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
+                    userType = when (updatedRemoteUser.userType) {
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                    },
+                    createdAt = updatedRemoteUser.createdAt
+                )
+            }
+            
+            // Actualizar el usuario en memoria
+            _currentUser.value = updatedUser
+            Result.success(updatedUser)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al incrementar grupos completados: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Actualiza la racha del usuario con lógica de días consecutivos usando SharedPreferences.
+     * Si el usuario no accedió ayer, reinicia la racha. Si accedió ayer, la incrementa.
+     * Si accede el mismo día, no hace nada.
+     */
+    suspend fun updateStreakWithDateCheck(userId: String, lastAccessDate: java.time.LocalDate?): Result<User> {
+        return try {
+            Log.d("AuthRepository", "Actualizando racha para usuario: $userId, última fecha: $lastAccessDate")
+            
+            val today = java.time.LocalDate.now()
+            
+            // Obtener el usuario actual
+            val currentRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (currentRemoteUser == null) {
+                Log.e("AuthRepository", "Usuario no encontrado: $userId")
+                return Result.failure(Exception("Usuario no encontrado"))
+            }
+            
+            val currentStreak = currentRemoteUser.streak ?: 0
+            val newStreak = when {
+                lastAccessDate == null -> {
+                    // Primera vez que accede, iniciar racha en 1
+                    1
+                }
+                lastAccessDate == today -> {
+                    // Ya accedió hoy, no cambiar la racha
+                    currentStreak
+                }
+                lastAccessDate == today.minusDays(1) -> {
+                    // Accedió ayer, incrementar racha
+                    currentStreak + 1
+                }
+                else -> {
+                    // No accedió ayer, reiniciar racha
+                    1
+                }
+            }
+            
+            // Solo actualizar si cambió
+            if (newStreak != currentStreak) {
+                supabase.from("usuarios")
+                    .update(mapOf("streak" to newStreak)) {
+                        filter { eq("id", userId) }
+                    }
+                
+                Log.d("AuthRepository", "Racha actualizada: $currentStreak -> $newStreak")
+            } else {
+                Log.d("AuthRepository", "Racha no cambió: $currentStreak (ya accedió hoy)")
+            }
+            
+            // Obtener el usuario actualizado
+            val updatedRemoteUser = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<com.nexusbiz.nexusbiz.data.remote.model.User>()
+            
+            if (updatedRemoteUser == null) {
+                return Result.failure(Exception("Error al obtener usuario actualizado"))
+            }
+            
+            // Convertir RemoteUser a User local
+            val tier = when (updatedRemoteUser.points) {
+                in 200..Int.MAX_VALUE -> UserTier.GOLD
+                in 100..199 -> UserTier.SILVER
+                else -> UserTier.BRONZE
+            }
+            val gamificationLevel = when (updatedRemoteUser.gamificationLevel) {
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.ORO -> GamificationLevel.ORO
+                com.nexusbiz.nexusbiz.data.remote.model.GamificationLevel.PLATA -> GamificationLevel.PLATA
+                else -> GamificationLevel.BRONCE
+            }
+            
+            val currentUser = _currentUser.value
+            val updatedUser = if (currentUser != null && currentUser.id == userId) {
+                currentUser.copy(streak = updatedRemoteUser.streak ?: 0)
+            } else {
+                User(
+                    id = updatedRemoteUser.id,
+                    alias = updatedRemoteUser.alias,
+                    passwordHash = updatedRemoteUser.passwordHash ?: "",
+                    fechaNacimiento = updatedRemoteUser.fechaNacimiento ?: "",
+                    district = updatedRemoteUser.district,
+                    email = updatedRemoteUser.email,
+                    avatar = updatedRemoteUser.avatar,
+                    latitude = updatedRemoteUser.latitude,
+                    longitude = updatedRemoteUser.longitude,
+                    points = updatedRemoteUser.points,
+                    tier = tier,
+                    gamificationLevel = gamificationLevel,
+                    badges = updatedRemoteUser.badges,
+                    streak = updatedRemoteUser.streak ?: 0,
+                    completedGroups = updatedRemoteUser.completedGroups,
+                    totalSavings = updatedRemoteUser.totalSavings ?: 0.0,
+                    userType = when (updatedRemoteUser.userType) {
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.CONSUMER -> com.nexusbiz.nexusbiz.data.model.UserType.CONSUMER
+                        com.nexusbiz.nexusbiz.data.remote.model.UserType.STORE_OWNER -> com.nexusbiz.nexusbiz.data.model.UserType.STORE_OWNER
+                    },
+                    createdAt = updatedRemoteUser.createdAt
+                )
+            }
+            
+            // Actualizar el usuario en memoria
+            _currentUser.value = updatedUser
+            Result.success(updatedUser)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Error al actualizar racha: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
     suspend fun updatePasswordHashByAlias(alias: String, newPassword: String): Result<Unit> {
         return try {
             val newPasswordHash = hashPassword(newPassword)

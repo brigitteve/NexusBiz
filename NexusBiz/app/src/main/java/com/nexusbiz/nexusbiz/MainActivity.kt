@@ -1,5 +1,5 @@
 package com.nexusbiz.nexusbiz
-
+import com.google.firebase.analytics.FirebaseAnalytics
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,9 +25,17 @@ class MainActivity : ComponentActivity() {
     private lateinit var productRepository: ProductRepository
     private lateinit var offerRepository: OfferRepository
     private lateinit var storeRepository: StoreRepository
+
+    private lateinit var firebaseAnalytics: FirebaseAnalytics
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Inicializar Firebase Analytics
+        firebaseAnalytics = FirebaseAnalytics.getInstance(this)
+
+        // Verificar si Firebase está funcionando
+        Log.d("Firebase", "Firebase Analytics inicializado correctamente.")
         
         // Inicializar Supabase
         // TODO: Reemplazar con tus credenciales reales de Supabase

@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="NexusBiz">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-11-30T03:35:55.868409900Z">
+        <DropdownSelection timestamp="2025-11-30T15:37:52.018447400Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=4THMTGDAZXEQQKZH" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\maris\.android\avd\Medium_Phone_2_2.avd" />
             </handle>
           </Target>
         </DropdownSelection>

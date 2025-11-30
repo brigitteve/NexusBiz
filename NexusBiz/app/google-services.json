@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "665990610926",
-    "project_id": "nexusbiz-c22c4",
-    "storage_bucket": "nexusbiz-c22c4.firebasestorage.app"
+    "project_number": "39357196188",
+    "project_id": "nexusbiz-bbc2c",
+    "storage_bucket": "nexusbiz-bbc2c.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:665990610926:android:88e38ccbb6e3c00b7c58ff",
+        "mobilesdk_app_id": "1:39357196188:android:71877936fcdb7d73934a59",
         "android_client_info": {
           "package_name": "com.nexusbiz.nexusbiz"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyA4earceLqH6Tzvk-H8zSylAYIyxQ7POao"
+          "current_key": "AIzaSyC2XM1bKWopPkuTiHODalHI40E6XQHD4UM"
         }
       ],
       "services": {

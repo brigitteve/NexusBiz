@@ -24,7 +24,8 @@ class StoreRepository {
         userDistrict: String?,
         userLat: Double?,
         userLon: Double?,
-        useNearbyStores: Boolean = false
+        useNearbyStores: Boolean = false,
+        userId: String? = null
     ): List<Store> {
         return try {
             // Obtener oferta para saber el distrito (en el nuevo esquema, los productos son ofertas)
@@ -37,10 +38,24 @@ class StoreRepository {
             val offerDistrict = offer?.get("district") as? String
             val district = userDistrict?.takeIf { it.isNotBlank() } ?: offerDistrict
             
+            // Si se solicita bodegas cercanas pero no tenemos coordenadas del dispositivo,
+            // intentar obtenerlas desde la BD del usuario
+            var finalUserLat = userLat
+            var finalUserLon = userLon
+            
+            if (useNearbyStores && (finalUserLat == null || finalUserLon == null) && userId != null) {
+                val userCoords = getUserCoordinates(userId)
+                if (userCoords != null) {
+                    finalUserLat = userCoords.first
+                    finalUserLon = userCoords.second
+                    Log.d("StoreRepository", "Coordenadas obtenidas desde BD del usuario: lat=$finalUserLat, lon=$finalUserLon")
+                }
+            }
+            
             val allStores = when {
-                // Si se solicita bodegas cercanas y hay ubicación del usuario
-                useNearbyStores && userLat != null && userLon != null -> {
-                    getStoresByRadius(productId, userLat, userLon, RADIUS_KM)
+                // Si se solicita bodegas cercanas y hay ubicación del usuario (del dispositivo o BD)
+                useNearbyStores && finalUserLat != null && finalUserLon != null -> {
+                    getStoresByRadius(productId, finalUserLat, finalUserLon, RADIUS_KM)
                 }
                 // Si hay distrito seleccionado, filtrar por distrito
                 district != null -> {
@@ -52,11 +67,10 @@ class StoreRepository {
                 }
             }
             
-            // Calcular distancias y ordenar
+            // Calcular distancias y ordenar (solo si hay ubicación del usuario y la bodega tiene coordenadas)
             val hasUserLocation = userLat != null && userLon != null
-            allStores.map { store ->
-                val canCalculateDistance = hasUserLocation && store.latitude != null && store.longitude != null
-                val distance = if (canCalculateDistance) {
+            val storesWithDistance = allStores.map { store ->
+                val distance = if (hasUserLocation && store.latitude != null && store.longitude != null) {
                     calculateDistance(
                         userLat ?: 0.0,
                         userLon ?: 0.0,
@@ -66,13 +80,21 @@ class StoreRepository {
                 } else {
                     null
                 }
-                store to distance
+                store.copy(distance = distance ?: 0.0) to distance
             }
                 .sortedWith(
-                    compareBy<Pair<Store, Double?>> { pair -> if (pair.second == null) 1 else 0 }
-                        .thenBy { pair -> pair.second ?: Double.MAX_VALUE }
+                    // Ordenar: primero las que tienen distancia calculada, luego las que no
+                    // Dentro de cada grupo, ordenar por distancia (más cercana primero)
+                    compareBy<Pair<Store, Double?>> { pair -> 
+                        if (pair.second == null) 1 else 0 
+                    }
+                    .thenBy { pair -> 
+                        pair.second ?: Double.MAX_VALUE 
+                    }
                 )
-                .map { (store, distance) -> store.copy(distance = distance ?: 0.0) }
+                .map { (store, _) -> store }
+            
+            storesWithDistance
         } catch (e: IllegalStateException) {
             Log.e("StoreRepository", "Supabase no inicializado", e)
             emptyList()
@@ -83,7 +105,14 @@ class StoreRepository {
     }
     
     /**
-     * Obtiene bodegas con stock dentro de un radio específico desde la ubicación del usuario
+     * Obtiene bodegas con stock dentro de un radio específico desde la ubicación del usuario.
+     * Usa la fórmula de Haversine para calcular la distancia y filtrar bodegas dentro del radio.
+     * 
+     * @param productId ID del producto (oferta) para filtrar bodegas relevantes
+     * @param userLat Latitud del usuario
+     * @param userLon Longitud del usuario
+     * @param radiusKm Radio en kilómetros (5 km por defecto)
+     * @return Lista de bodegas dentro del radio, ordenadas por distancia
      */
     private suspend fun getStoresByRadius(
         productId: String,
@@ -92,7 +121,7 @@ class StoreRepository {
         radiusKm: Double
     ): List<Store> {
         return try {
-            // Obtener todas las bodegas con stock y GPS activado
+            // Obtener todas las bodegas con stock (luego filtraremos las que tienen coordenadas)
             val allStoresWithStock = supabase.from("bodegas")
                 .select {
                     filter {
@@ -101,19 +130,32 @@ class StoreRepository {
                 }
                 .decodeList<RemoteStore>()
                 .map { remoteStore -> mapRemoteStoreToStore(remoteStore) }
+                .filter { it.latitude != null && it.longitude != null } // Filtrar las que tienen coordenadas
             
-            // Filtrar solo las que tienen GPS activado y están dentro del radio
-            allStoresWithStock.filter { store ->
-                store.latitude != null && store.longitude != null && run {
-                    val distance = calculateDistance(
-                        userLat,
-                        userLon,
-                        store.latitude ?: 0.0,
-                        store.longitude ?: 0.0
-                    )
-                    distance <= radiusKm
+            // Calcular distancia y filtrar bodegas dentro del radio
+            // También ordenamos por distancia para mostrar las más cercanas primero
+            allStoresWithStock
+                .mapNotNull { store ->
+                    if (store.latitude != null && store.longitude != null) {
+                        val distance = calculateDistance(
+                            userLat,
+                            userLon,
+                            store.latitude ?: 0.0,
+                            store.longitude ?: 0.0
+                        )
+                        
+                        // Solo incluir bodegas dentro del radio
+                        if (distance <= radiusKm) {
+                            store.copy(distance = distance) to distance
+                        } else {
+                            null
+                        }
+                    } else {
+                        null
+                    }
                 }
-            }
+                .sortedBy { (_, distance) -> distance } // Ordenar por distancia (más cercana primero)
+                .map { (store, _) -> store }
         } catch (e: Exception) {
             Log.e("StoreRepository", "Error al obtener bodegas por radio: ${e.message}", e)
             emptyList()
@@ -200,16 +242,62 @@ class StoreRepository {
         }
     }
     
+    /**
+     * Calcula la distancia entre dos puntos geográficos usando la fórmula de Haversine.
+     * Esta es una implementación más precisa que considera el radio de la Tierra en metros.
+     * 
+     * @param lat1 Latitud del primer punto (usuario)
+     * @param lon1 Longitud del primer punto (usuario)
+     * @param lat2 Latitud del segundo punto (bodega)
+     * @param lon2 Longitud del segundo punto (bodega)
+     * @return Distancia en kilómetros
+     */
     private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        // Fórmula de Haversine simplificada
-        val earthRadius = 6371.0 // km
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        // Radio de la Tierra en metros (6371000 metros = 6371 km)
+        val earthRadiusMeters = 6371000.0
+        
+        // Convertir grados a radianes
+        val lat1Rad = Math.toRadians(lat1)
+        val lat2Rad = Math.toRadians(lat2)
+        val deltaLatRad = Math.toRadians(lat2 - lat1)
+        val deltaLonRad = Math.toRadians(lon2 - lon1)
+        
+        // Fórmula de Haversine completa
+        val a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
+                Math.cos(lat1Rad) * Math.cos(lat2Rad) *
+                Math.sin(deltaLonRad / 2) * Math.sin(deltaLonRad / 2)
+        
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-        return earthRadius * c
+        
+        // Distancia en metros, convertir a kilómetros
+        val distanceMeters = earthRadiusMeters * c
+        return distanceMeters / 1000.0
+    }
+    
+    /**
+     * Obtiene las coordenadas del usuario desde la base de datos.
+     * Útil cuando no se tienen las coordenadas en memoria pero están guardadas en la BD.
+     */
+    suspend fun getUserCoordinates(userId: String): Pair<Double, Double>? {
+        return try {
+            val userData = supabase.from("usuarios")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<Map<String, Any>>()
+            
+            val latitude = (userData?.get("latitude") as? Number)?.toDouble()
+            val longitude = (userData?.get("longitude") as? Number)?.toDouble()
+            
+            if (latitude != null && longitude != null) {
+                Pair(latitude, longitude)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("StoreRepository", "Error al obtener coordenadas del usuario: ${e.message}", e)
+            null
+        }
     }
     
     private fun mapRemoteStoreToStore(remoteStore: RemoteStore): Store {
